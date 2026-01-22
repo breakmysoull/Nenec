@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { signIn } from "@/lib/supabase";
+import { signIn, checkConnection } from "@/lib/supabase";
 import { toast } from "sonner";
 import { Loader2, ChefHat } from "lucide-react";
 
@@ -16,20 +16,47 @@ const Login = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("Login: Iniciando processo de login...");
     setLoading(true);
 
-    const { error } = await signIn(email, password);
+    try {
+      // Verificar conexão antes de tentar login
+      const isConnected = await checkConnection();
+      if (!isConnected) {
+        console.error("Login: Falha na verificação de conexão com Supabase");
+        toast.error("Erro de conexão com o servidor. Verifique sua internet.");
+        setLoading(false);
+        return;
+      }
 
-    if (error) {
-      toast.error("Erro ao fazer login", {
-        description: error.message,
-      });
+      console.log("Login: Chamando signIn...");
+      const { data, error } = await signIn(email, password);
+      console.log("Login: signIn retornou", { data, error });
+
+      if (error) {
+        console.error("Login: Erro no signIn", error);
+        toast.error("Erro ao fazer login", {
+          description: error.message,
+        });
+        setLoading(false);
+        return;
+      }
+
+      if (data.session) {
+        console.log("Login: Sessão criada com sucesso. Navegando para dashboard...");
+        toast.success("Login realizado com sucesso!");
+        // Force navigation
+        navigate("/dashboard");
+      } else {
+        console.warn("Login: Sucesso mas sem sessão (verifique confirmação de email).");
+        toast.error("Erro ao iniciar sessão. Verifique seu e-mail.");
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error("Login: Exceção não tratada", err);
+      toast.error("Ocorreu um erro inesperado ao fazer login.");
       setLoading(false);
-      return;
     }
-
-    toast.success("Login realizado com sucesso!");
-    navigate("/dashboard");
   };
 
   return (

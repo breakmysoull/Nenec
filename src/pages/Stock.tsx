@@ -3,28 +3,117 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Plus, Package, ArrowDown, ArrowUp, Search } from "lucide-react";
+import { Plus, Package, ArrowDown, ArrowUp, Search, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
+import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 
-// Mock data
-const mockStock = [
-  { id: 1, name: "Hambúrguer 180g", current: 45, min: 50, unit: "un", status: "critical" },
-  { id: 2, name: "Pão de Hambúrguer", current: 120, min: 100, unit: "un", status: "ok" },
-  { id: 3, name: "Queijo Cheddar", current: 8, min: 10, unit: "kg", status: "warning" },
-  { id: 4, name: "Batata Congelada", current: 25, min: 20, unit: "kg", status: "ok" },
-  { id: 5, name: "Alface Americana", current: 3, min: 5, unit: "kg", status: "critical" },
-];
+// Interface for stock data
+interface StockItem {
+  id: string;
+  name: string;
+  unit_measure: string;
+  min_stock: number;
+  current_stock: number;
+}
 
 const Stock = () => {
+  const { roles, isSuperAdmin, activeUnitId } = useAuth();
   const [search, setSearch] = useState("");
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filteredStock = mockStock.filter(item =>
+  // Get current unit from roles (fallback if no activeUnitId)
+  const currentUnitId = roles?.[0]?.unit_id;
+
+  useEffect(() => {
+    if (activeUnitId || currentUnitId || isSuperAdmin) {
+      fetchStock();
+    } else {
+      setLoading(false);
+    }
+  }, [activeUnitId, currentUnitId, isSuperAdmin]);
+
+  const fetchStock = async () => {
+    try {
+      setLoading(true);
+      
+      // Step 3.3.4: Use clean view for reading stock
+      let query = supabase
+        .from('vw_unit_stock')
+        .select('*');
+
+      // Filter by unit if not super admin or if super admin selected a unit
+      // Note: activeUnitId comes from AuthContext, currentUnitId comes from roles.
+      // We should prefer activeUnitId for the multi-unit selector logic.
+      if (activeUnitId) {
+        query = query.eq('unit_id', activeUnitId);
+      } else if (currentUnitId) {
+        query = query.eq('unit_id', currentUnitId);
+      }
+      
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      const formattedData = data.map((item: any) => ({
+        id: item.ingredient_id || item.id, // Handle potential view column naming
+        name: item.name,
+        unit_measure: item.unit_measure,
+        min_stock: item.min_stock,
+        current_stock: item.current_stock || 0,
+      }));
+
+      setStockItems(formattedData);
+    } catch (error: any) {
+      console.error('Error fetching stock:', error);
+      // Fallback for development if view is missing
+      if (error.code === '42P01') {
+         toast.error("View 'vw_unit_stock' não encontrada. Verifique o banco de dados.");
+      } else {
+         toast.error("Erro ao carregar estoque");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const registerStockMovement = async (ingredientId: string, quantity: number, type: 'compra' | 'producao' | 'venda' | 'perda' | 'ajuste') => {
+    if (!currentUnitId) {
+      toast.error("Unidade não identificada");
+      return;
+    }
+
+    try {
+      // ETAPA 7: USAR RPC (MOVIMENTAÇÃO DE ESTOQUE)
+      const { error } = await supabase.rpc('register_stock_movement', {
+        p_unit_id: currentUnitId,
+        p_ingredient_id: ingredientId,
+        p_quantity: quantity,
+        p_type: type,
+      });
+
+      if (error) throw error;
+
+      toast.success("Movimentação registrada com sucesso");
+      fetchStock(); // Refresh list
+    } catch (error: any) {
+      console.error('Error registering movement:', error);
+      toast.error("Erro ao registrar movimentação: " + error.message);
+    }
+  };
+
+  const filteredStock = stockItems.filter(item =>
     item.name.toLowerCase().includes(search.toLowerCase())
   );
 
   const getStockStatus = (current: number, min: number) => {
-    const ratio = current / min;
+    // If no stock tracking yet, return ok
+    if (current === 0 && min === 0) return "ok";
+    
+    const ratio = current / (min || 1);
     if (ratio < 0.8) return "critical";
     if (ratio < 1) return "warning";
     return "ok";
@@ -56,16 +145,20 @@ const Stock = () => {
         </div>
 
         {/* Stock List */}
-        {filteredStock.length === 0 ? (
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          </div>
+        ) : filteredStock.length === 0 ? (
           <EmptyState
             icon={Package}
             title="Nenhum item encontrado"
-            description="Tente buscar por outro termo"
+            description={stockItems.length === 0 ? "Nenhum ingrediente cadastrado" : "Tente buscar por outro termo"}
           />
         ) : (
           <div className="space-y-3">
             {filteredStock.map((item) => {
-              const status = getStockStatus(item.current, item.min);
+              const status = getStockStatus(item.current_stock, item.min_stock);
               return (
                 <div
                   key={item.id}
@@ -86,7 +179,7 @@ const Stock = () => {
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      Mínimo: {item.min} {item.unit}
+                      Mínimo: {item.min_stock} {item.unit_measure}
                     </p>
                   </div>
                   <div className="text-right">
@@ -94,9 +187,9 @@ const Stock = () => {
                       status === "critical" ? "text-destructive" : 
                       status === "warning" ? "text-warning" : "text-foreground"
                     }`}>
-                      {item.current}
+                      {item.current_stock}
                     </p>
-                    <p className="text-xs text-muted-foreground">{item.unit}</p>
+                    <p className="text-xs text-muted-foreground">{item.unit_measure}</p>
                   </div>
                 </div>
               );

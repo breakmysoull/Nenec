@@ -1,6 +1,6 @@
 // Database types for the fast food operations platform
 
-export type AppRole = 'operador' | 'lider_turno' | 'gerente' | 'admin_rede';
+export type AppRole = 'super_admin' | 'admin' | 'manager' | 'operator' | 'lider_turno' | 'admin_rede' | 'gerente' | 'operador';
 
 export type StockMovementType = 'compra' | 'producao' | 'venda' | 'perda' | 'ajuste';
 
@@ -14,12 +14,27 @@ export type TrainingStatus = 'pendente' | 'em_andamento' | 'concluido';
 
 export type UnitMeasure = 'kg' | 'g' | 'l' | 'ml' | 'un';
 
+export interface Unit {
+  id: string;
+  name: string;
+  slug?: string;
+  is_active?: boolean;
+  address?: string;
+  city?: string;
+  state?: string;
+}
+
 // Display helpers
 export const roleLabels: Record<AppRole, string> = {
+  super_admin: 'Super Admin',
+  admin: 'Administrador',
+  manager: 'Gerente',
+  operator: 'Operador',
+  // Legacy / PT-BR support
+  admin_rede: 'Admin da Rede',
+  gerente: 'Gerente',
   operador: 'Operador',
   lider_turno: 'Líder de Turno',
-  gerente: 'Gerente',
-  admin_rede: 'Admin da Rede',
 };
 
 export const orderStatusLabels: Record<OrderStatus, string> = {

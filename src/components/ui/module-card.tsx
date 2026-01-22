@@ -9,6 +9,8 @@ interface ModuleCardProps {
   to: string;
   color?: string;
   badge?: string | number;
+  variant?: 'default' | 'compact';
+  className?: string;
 }
 
 export const ModuleCard = ({
@@ -18,11 +20,17 @@ export const ModuleCard = ({
   to,
   color = "primary",
   badge,
+  variant = 'default',
+  className,
 }: ModuleCardProps) => {
   return (
     <Link
       to={to}
-      className="module-card group"
+      className={cn(
+        "module-card group", 
+        variant === 'compact' && "p-4",
+        className
+      )}
       style={{ "--accent-color": `var(--${color})` } as React.CSSProperties}
     >
       <div className="flex items-start gap-4">

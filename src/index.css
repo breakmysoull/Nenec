@@ -168,7 +168,7 @@
 
   /* Module Cards */
   .module-card {
-    @apply relative overflow-hidden rounded-xl border bg-card p-6 transition-all duration-200 hover:shadow-lg hover:border-primary/30;
+    @apply block relative overflow-hidden rounded-xl border bg-card p-6 transition-all duration-200 hover:shadow-lg hover:border-primary/30;
   }
 
   .module-card::before {
