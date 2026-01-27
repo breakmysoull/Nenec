@@ -1,0 +1,263 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =====================================================
+   FAST FOOD OPERATIONS PLATFORM - DESIGN SYSTEM
+   ===================================================== */
+
+@layer base {
+  :root {
+    /* Core Brand Colors - Warm Orange/Amber for Food Industry */
+    --background: 30 20% 98%;
+    --foreground: 20 14% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 20 14% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 20 14% 12%;
+
+    /* Primary - Vibrant Orange */
+    --primary: 24 95% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary - Warm Gray */
+    --secondary: 30 10% 94%;
+    --secondary-foreground: 20 14% 20%;
+
+    /* Muted - Soft neutral */
+    --muted: 30 10% 96%;
+    --muted-foreground: 20 10% 45%;
+
+    /* Accent - Amber highlight */
+    --accent: 38 92% 50%;
+    --accent-foreground: 20 14% 12%;
+
+    /* Destructive - Alert Red */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Success - Green */
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    /* Warning - Yellow */
+    --warning: 45 93% 47%;
+    --warning-foreground: 20 14% 12%;
+
+    /* Info - Blue */
+    --info: 199 89% 48%;
+    --info-foreground: 0 0% 100%;
+
+    /* UI Elements */
+    --border: 30 15% 88%;
+    --input: 30 15% 88%;
+    --ring: 24 95% 53%;
+
+    --radius: 0.75rem;
+
+    /* Sidebar */
+    --sidebar-background: 20 14% 12%;
+    --sidebar-foreground: 30 20% 95%;
+    --sidebar-primary: 24 95% 53%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 20 14% 18%;
+    --sidebar-accent-foreground: 30 20% 95%;
+    --sidebar-border: 20 14% 20%;
+    --sidebar-ring: 24 95% 53%;
+
+    /* Status Colors */
+    --status-pending: 45 93% 47%;
+    --status-approved: 142 76% 36%;
+    --status-delivered: 199 89% 48%;
+    --status-cancelled: 0 84% 60%;
+
+    /* Module Colors */
+    --module-dashboard: 24 95% 53%;
+    --module-stock: 142 76% 36%;
+    --module-orders: 199 89% 48%;
+    --module-checklists: 280 65% 60%;
+    --module-training: 45 93% 47%;
+    --module-products: 340 82% 52%;
+    --module-units: 180 60% 45%;
+    --module-users: 220 70% 50%;
+  }
+
+  .dark {
+    --background: 20 14% 8%;
+    --foreground: 30 20% 95%;
+
+    --card: 20 14% 12%;
+    --card-foreground: 30 20% 95%;
+
+    --popover: 20 14% 12%;
+    --popover-foreground: 30 20% 95%;
+
+    --primary: 24 95% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 20 14% 18%;
+    --secondary-foreground: 30 20% 95%;
+
+    --muted: 20 14% 18%;
+    --muted-foreground: 30 10% 60%;
+
+    --accent: 38 92% 50%;
+    --accent-foreground: 20 14% 12%;
+
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 70% 40%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 45 90% 50%;
+    --warning-foreground: 20 14% 12%;
+
+    --info: 199 85% 50%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 20 14% 20%;
+    --input: 20 14% 20%;
+    --ring: 24 95% 53%;
+
+    --sidebar-background: 20 14% 6%;
+    --sidebar-foreground: 30 20% 95%;
+    --sidebar-primary: 24 95% 53%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 20 14% 12%;
+    --sidebar-accent-foreground: 30 20% 95%;
+    --sidebar-border: 20 14% 15%;
+    --sidebar-ring: 24 95% 53%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer components {
+  /* Status Badges */
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium;
+  }
+
+  .status-pending {
+    @apply bg-warning/15 text-warning;
+  }
+
+  .status-approved {
+    @apply bg-success/15 text-success;
+  }
+
+  .status-delivered {
+    @apply bg-info/15 text-info;
+  }
+
+  .status-cancelled {
+    @apply bg-destructive/15 text-destructive;
+  }
+
+  /* Module Cards */
+  .module-card {
+    @apply block relative overflow-hidden rounded-xl border bg-card p-6 transition-all duration-200 hover:shadow-lg hover:border-primary/30;
+  }
+
+  .module-card::before {
+    content: '';
+    @apply absolute top-0 left-0 w-1 h-full bg-primary;
+  }
+
+  /* Stats Cards */
+  .stat-card {
+    @apply bg-card rounded-xl p-4 border shadow-sm;
+  }
+
+  .stat-card-critical {
+    @apply border-destructive/30 bg-destructive/5;
+  }
+
+  .stat-card-warning {
+    @apply border-warning/30 bg-warning/5;
+  }
+
+  .stat-card-success {
+    @apply border-success/30 bg-success/5;
+  }
+
+  /* Quick Action Buttons */
+  .quick-action {
+    @apply flex flex-col items-center justify-center gap-2 p-4 rounded-xl border bg-card transition-all duration-200 hover:shadow-md hover:border-primary/30 active:scale-[0.98];
+  }
+
+  /* Mobile Bottom Nav */
+  .bottom-nav {
+    @apply fixed bottom-0 left-0 right-0 bg-card border-t flex items-center justify-around py-2 px-4 z-50;
+  }
+
+  .bottom-nav-item {
+    @apply flex flex-col items-center gap-1 px-3 py-2 rounded-lg text-muted-foreground transition-colors;
+  }
+
+  .bottom-nav-item.active {
+    @apply text-primary bg-primary/10;
+  }
+
+  /* Form Controls */
+  .form-section {
+    @apply space-y-4 p-4 rounded-xl bg-muted/30;
+  }
+
+  /* List Items */
+  .list-item {
+    @apply flex items-center gap-4 p-4 bg-card rounded-xl border transition-all hover:shadow-sm hover:border-primary/20;
+  }
+
+  /* Empty States */
+  .empty-state {
+    @apply flex flex-col items-center justify-center py-12 text-center text-muted-foreground;
+  }
+
+  /* Loading States */
+  .skeleton-pulse {
+    @apply animate-pulse bg-muted rounded;
+  }
+}
+
+@layer utilities {
+  /* Safe area for mobile */
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top, 0);
+  }
+
+  /* Hide scrollbar */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Gradient overlays */
+  .gradient-fade-bottom {
+    background: linear-gradient(to top, hsl(var(--background)) 0%, transparent 100%);
+  }
+
+  .gradient-fade-top {
+    background: linear-gradient(to bottom, hsl(var(--background)) 0%, transparent 100%);
+  }
+}
