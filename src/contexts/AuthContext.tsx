@@ -18,11 +18,7 @@ interface AuthContextType {
   signOut: () => Promise<void>;
 }
 
-<<<<<<< HEAD
 const SUPER_ADMIN_EMAILS = ['admin@nenec.app', 'erycryto@gmail.com'];
-=======
-const SUPER_ADMIN_EMAILS = ['admin@opfood.app', 'erycryto@gmail.com'];
->>>>>>> origin/master
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
