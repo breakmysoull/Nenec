@@ -1,4 +1,4 @@
-import { Bell, Menu, User, Shield, Building2, ChevronDown, AlertTriangle, Package, Plus } from "lucide-react";
+import { Bell, Menu, User, Shield, Building2, ChevronDown, AlertTriangle, Package, Plus, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -26,9 +26,10 @@ import { useNavigate } from "react-router-dom";
 interface HeaderProps {
   title?: string;
   onMenuClick?: () => void;
+  showBackButton?: boolean;
 }
 
-export const Header = ({ title = "OpFood", onMenuClick }: HeaderProps) => {
+export const Header = ({ title = "Nenec", onMenuClick, showBackButton }: HeaderProps) => {
   const { user, signOut, role, isSuperAdmin, units, activeUnitId, setActiveUnitId } = useAuth();
   const { critical, count: alertCount } = useStockAlerts();
   const navigate = useNavigate();
@@ -42,14 +43,26 @@ export const Header = ({ title = "OpFood", onMenuClick }: HeaderProps) => {
     <header className="sticky top-0 z-40 bg-card border-b safe-area-top">
       <div className="flex items-center justify-between h-14 px-4">
         <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="lg:hidden"
-            onClick={onMenuClick}
-          >
-            <Menu className="w-5 h-5" />
-          </Button>
+          {showBackButton ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate(-1)}
+              aria-label="Voltar para página anterior"
+              className="transition-colors hover:bg-accent/80 active:bg-accent"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="lg:hidden"
+              onClick={onMenuClick}
+            >
+              <Menu className="w-5 h-5" />
+            </Button>
+          )}
           <div className="flex items-center gap-2">
             <h1 className="text-lg font-bold text-primary hidden sm:block">{title}</h1>
             

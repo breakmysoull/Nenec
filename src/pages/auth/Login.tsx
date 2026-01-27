@@ -67,7 +67,7 @@ const Login = () => {
             <ChefHat className="w-8 h-8 text-primary-foreground" />
           </div>
           <div>
-            <CardTitle className="text-2xl">OpFood</CardTitle>
+            <CardTitle className="text-2xl">Nenec</CardTitle>
             <CardDescription>
               Plataforma Operacional para Redes de Restaurantes
             </CardDescription>

@@ -189,7 +189,7 @@ const Dashboard = () => {
   );
 
   return (
-    <AppLayout title="OpFood">
+    <AppLayout title="Nenec">
       <div className="p-4 space-y-6 animate-fade-in pb-24">
         {/* Greeting Header */}
         <div className="flex items-center justify-between">

@@ -45,7 +45,7 @@ const Register = () => {
           <div>
             <CardTitle className="text-2xl">Criar Conta</CardTitle>
             <CardDescription>
-              Junte-se à plataforma OpFood
+              Junte-se à plataforma Nenec
             </CardDescription>
           </div>
         </CardHeader>

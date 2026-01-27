@@ -18,7 +18,11 @@ interface AuthContextType {
   signOut: () => Promise<void>;
 }
 
+<<<<<<< HEAD
 const SUPER_ADMIN_EMAILS = ['admin@nenec.app', 'erycryto@gmail.com'];
+=======
+const SUPER_ADMIN_EMAILS = ['admin@opfood.app', 'erycryto@gmail.com'];
+>>>>>>> origin/master
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
@@ -210,8 +214,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const rawRole = fetchedRoles[0].role;
             setRole(normalizeRole(rawRole));
           } else {
-            // Default to operator if no role found
-            setRole('operator');
+            // Default to super_admin for MVP testing purposes (was operator)
+            setRole('super_admin');
           }
 
         } else {

@@ -17,7 +17,7 @@ import { Progress } from "@/components/ui/progress";
 const mockTrainings = [
   { 
     id: 1, 
-    name: "Preparo do Hambúrguer Classic",
+    name: "Preparo do Smash Duplo",
     description: "Aprenda o preparo padronizado do nosso hambúrguer mais vendido",
     status: "pendente" as TrainingStatus,
     duration: 15,
@@ -119,7 +119,7 @@ const Training = () => {
                   </div>
                   
                   {training.status !== 'pendente' && (
-                    <div className="space-y-1">
+                    <div className="space-y-1 mb-2">
                       <div className="flex justify-between text-xs">
                         <span className="text-muted-foreground">Progresso</span>
                         <span className="font-medium">{training.progress}%</span>
@@ -131,7 +131,7 @@ const Training = () => {
                   {training.status !== 'concluido' && (
                     <Button 
                       variant={training.status === 'em_andamento' ? "default" : "outline"}
-                      className="w-full"
+                      className="w-full mt-2"
                     >
                       <Play className="w-4 h-4 mr-2" />
                       {training.status === 'em_andamento' ? 'Continuar' : 'Iniciar'}
