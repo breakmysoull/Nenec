@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -10,44 +11,65 @@ import {
   BookOpen
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { TrainingStatus } from "@/types/database";
 import { Progress } from "@/components/ui/progress";
-
-// Mock data
-const mockTrainings = [
-  { 
-    id: 1, 
-    name: "Preparo do Smash Duplo",
-    description: "Aprenda o preparo padronizado do nosso hambúrguer mais vendido",
-    status: "pendente" as TrainingStatus,
-    duration: 15,
-    progress: 0,
-    type: "produto"
-  },
-  { 
-    id: 2, 
-    name: "Segurança Alimentar Básica",
-    description: "Normas essenciais de higiene e manipulação de alimentos",
-    status: "em_andamento" as TrainingStatus,
-    duration: 30,
-    progress: 60,
-    type: "obrigatorio"
-  },
-  { 
-    id: 3, 
-    name: "Atendimento ao Cliente",
-    description: "Técnicas para um atendimento excepcional",
-    status: "concluido" as TrainingStatus,
-    duration: 20,
-    progress: 100,
-    type: "cargo"
-  },
-];
+import { useAuth } from "@/contexts/AuthContext";
+import { trainingService, Training as TrainingType } from "@/services/trainingService";
+import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const Training = () => {
-  const pendingCount = mockTrainings.filter(t => t.status === 'pendente').length;
-  const inProgressCount = mockTrainings.filter(t => t.status === 'em_andamento').length;
-  const completedCount = mockTrainings.filter(t => t.status === 'concluido').length;
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [trainings, setTrainings] = useState<TrainingType[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchTrainings = async () => {
+    if (!user) return;
+    try {
+      const data = await trainingService.getUserTrainings(user.id);
+      setTrainings(data);
+    } catch (error) {
+      console.error("Error fetching trainings:", error);
+      toast.error("Erro ao carregar treinamentos");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTrainings();
+  }, [user]);
+
+  const handleStartTraining = async (training: TrainingType) => {
+    if (!user) return;
+    try {
+      if (training.status === 'pendente') {
+        await trainingService.startTraining(training.id, user.id);
+      }
+      navigate(`/training/${training.id}`);
+    } catch (error) {
+      console.error("Error starting training:", error);
+      toast.error("Erro ao iniciar treinamento");
+    }
+  };
+
+  const pendingCount = trainings.filter(t => t.status === 'pendente').length;
+  const inProgressCount = trainings.filter(t => t.status === 'em_andamento').length;
+  const completedCount = trainings.filter(t => t.status === 'concluido').length;
+
+  if (loading) {
+    return (
+      <AppLayout title="Treinamentos">
+        <PageHeader title="Treinamentos" subtitle="Carregando..." />
+        <div className="p-4 space-y-4">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout title="Treinamentos">
@@ -79,16 +101,16 @@ const Training = () => {
             Seus Treinamentos
           </h3>
           
-          {mockTrainings.length === 0 ? (
+          {trainings.length === 0 ? (
             <EmptyState
               icon={GraduationCap}
               title="Sem treinamentos"
-              description="Você não tem treinamentos pendentes"
+              description="Você não tem treinamentos atribuídos no momento"
             />
           ) : (
             <div className="space-y-3">
-              {mockTrainings.map((training) => (
-                <div key={training.id} className="list-item flex-col items-stretch gap-3">
+              {trainings.map((training) => (
+                <div key={training.id} className="bg-card border rounded-xl p-4 shadow-sm space-y-3">
                   <div className="flex items-start gap-3">
                     <div className={`p-2 rounded-lg ${
                       training.status === 'concluido' 
@@ -111,10 +133,7 @@ const Training = () => {
                       <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
                         {training.description}
                       </p>
-                      <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                        <Clock className="w-3 h-3" />
-                        <span>{training.duration} min</span>
-                      </div>
+                      {/* Duration is not in RPC yet, removed or needs to be added */}
                     </div>
                   </div>
                   
@@ -128,15 +147,14 @@ const Training = () => {
                     </div>
                   )}
 
-                  {training.status !== 'concluido' && (
-                    <Button 
-                      variant={training.status === 'em_andamento' ? "default" : "outline"}
-                      className="w-full mt-2"
-                    >
-                      <Play className="w-4 h-4 mr-2" />
-                      {training.status === 'em_andamento' ? 'Continuar' : 'Iniciar'}
-                    </Button>
-                  )}
+                  <Button 
+                    variant={training.status === 'em_andamento' ? "default" : "outline"}
+                    className="w-full mt-2"
+                    onClick={() => handleStartTraining(training)}
+                  >
+                    <Play className="w-4 h-4 mr-2" />
+                    {training.status === 'em_andamento' ? 'Continuar' : training.status === 'concluido' ? 'Revisar' : 'Iniciar'}
+                  </Button>
                 </div>
               ))}
             </div>

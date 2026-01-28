@@ -11,9 +11,11 @@ DROP TABLE IF EXISTS public.trainings;
 CREATE TABLE public.trainings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   network_id UUID REFERENCES public.networks(id) ON DELETE CASCADE NOT NULL,
-  title TEXT NOT NULL,
-  role TEXT NOT NULL, -- Ex: 'operador', 'cozinha', 'gerente'
-  active BOOLEAN DEFAULT true,
+  name TEXT NOT NULL,
+  description TEXT,
+  target_role app_role, -- Ex: 'operador', 'cozinha', 'gerente'
+  is_mandatory BOOLEAN DEFAULT false,
+  is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -43,7 +45,9 @@ CREATE TABLE public.user_training_progress (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
   training_id UUID REFERENCES public.trainings(id) ON DELETE CASCADE NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('pending', 'in_progress', 'completed')),
+  status training_status DEFAULT 'pendente'::training_status,
+  score INTEGER DEFAULT 0,
+  started_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),

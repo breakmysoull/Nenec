@@ -18,6 +18,7 @@ import PurchaseDetail from "./pages/purchases/PurchaseDetail";
 import Checklists from "./pages/Checklists";
 import ChecklistReview from "./pages/ChecklistReview";
 import Training from "./pages/Training";
+import TrainingPlayer from "./pages/TrainingPlayer";
 import Products from "./pages/Products";
 import Units from "./pages/Units";
 import Users from "./pages/Users";
@@ -99,6 +100,14 @@ const App = () => (
               element={
                 <ProtectedRoute requiredPermission="view_training">
                   <Training />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/training/:id"
+              element={
+                <ProtectedRoute requiredPermission="view_training">
+                  <TrainingPlayer />
                 </ProtectedRoute>
               }
             />
