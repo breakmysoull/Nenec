@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -24,7 +24,7 @@ const Training = () => {
   const [trainings, setTrainings] = useState<TrainingType[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchTrainings = async () => {
+  const fetchTrainings = useCallback(async () => {
     if (!user) return;
     try {
       const data = await trainingService.getUserTrainings(user.id);
@@ -35,11 +35,11 @@ const Training = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
     fetchTrainings();
-  }, [user]);
+  }, [fetchTrainings]);
 
   const handleStartTraining = async (training: TrainingType) => {
     if (!user) return;

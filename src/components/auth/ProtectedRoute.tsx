@@ -2,7 +2,7 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader2 } from "lucide-react";
 import { Permission, hasPermission } from "@/lib/permissions";
-import { toast } from "sonner";
+import { usePermissions } from "@/contexts/PermissionsContext";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -10,12 +10,11 @@ interface ProtectedRouteProps {
 }
 
 export const ProtectedRoute = ({ children, requiredPermission }: ProtectedRouteProps) => {
-  const { user, role, loading } = useAuth();
+  const { user, authLoading } = useAuth();
+  const { role, baseRole, adminView, permissionsLoading } = usePermissions();
   const location = useLocation();
 
-  console.log("ProtectedRoute: State check", { user: user?.id, role, loading, path: location.pathname });
-
-  if (loading) {
+  if (authLoading || permissionsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -24,13 +23,23 @@ export const ProtectedRoute = ({ children, requiredPermission }: ProtectedRouteP
   }
 
   if (!user) {
-    console.log("ProtectedRoute: No user, redirecting to login");
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  const isAdminBase = baseRole === "admin" || baseRole === "super_admin";
+  if (isAdminBase && !adminView) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (requiredPermission && !role) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   if (requiredPermission && role && !hasPermission(role, requiredPermission)) {
-    console.warn(`ProtectedRoute: Access denied. Role ${role} missing permission ${requiredPermission}`);
-    // toast.error("Acesso não autorizado para seu perfil."); // Optional: avoid toast loop
     return <Navigate to="/dashboard" replace />;
   }
 

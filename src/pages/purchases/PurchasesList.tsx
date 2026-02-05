@@ -5,9 +5,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Plus, Package, Clock, Eye, Edit, ChevronRight } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/contexts/PermissionsContext";
 import { hasPermission } from "@/lib/permissions";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -30,7 +30,7 @@ interface PurchaseOrder {
 }
 
 const Purchases = () => {
-  const { role, activeUnitId, isSuperAdmin } = useAuth();
+  const { role, activeUnitId, isSuperAdmin } = usePermissions();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<string>("all");
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
@@ -39,20 +39,12 @@ const Purchases = () => {
   // Permission Checks
   const canCreate = hasPermission(role || 'operator', 'create_order');
 
-  useEffect(() => {
-    if (activeUnitId || isSuperAdmin) {
-      fetchOrders();
-    } else {
-      setLoading(false);
-    }
-  }, [activeUnitId, isSuperAdmin]);
-
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
       
       let query = supabase
-        .from('purchase_orders' as any)
+        .from('purchase_orders')
         .select(`
           id,
           status,
@@ -77,14 +69,21 @@ const Purchases = () => {
 
       if (error) throw error;
 
-      setOrders(data as any);
-    } catch (error: any) {
-      console.error('Error fetching orders:', error);
+      setOrders((data || []) as PurchaseOrder[]);
+    } catch {
       toast.error("Erro ao carregar pedidos");
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeUnitId, isSuperAdmin]);
+
+  useEffect(() => {
+    if (activeUnitId || isSuperAdmin) {
+      fetchOrders();
+    } else {
+      setLoading(false);
+    }
+  }, [activeUnitId, isSuperAdmin, fetchOrders]);
 
   const filteredOrders = orders.filter(order => {
     if (activeTab === 'all') return true;

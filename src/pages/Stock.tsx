@@ -5,10 +5,10 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Plus, Package, ArrowDown, ArrowUp, Search, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
-import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/contexts/PermissionsContext";
 
 // Interface for stock data
 interface StockItem {
@@ -19,8 +19,17 @@ interface StockItem {
   current_stock: number;
 }
 
+type StockViewRow = {
+  ingredient_id?: string | null;
+  id?: string | null;
+  name?: string | null;
+  unit_measure?: string | null;
+  min_stock?: number | null;
+  current_stock?: number | null;
+};
+
 const Stock = () => {
-  const { roles, isSuperAdmin, activeUnitId } = useAuth();
+  const { roles, isSuperAdmin, activeUnitId } = usePermissions();
   const [search, setSearch] = useState("");
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,21 +37,13 @@ const Stock = () => {
   // Get current unit from roles (fallback if no activeUnitId)
   const currentUnitId = roles?.[0]?.unit_id;
 
-  useEffect(() => {
-    if (activeUnitId || currentUnitId || isSuperAdmin) {
-      fetchStock();
-    } else {
-      setLoading(false);
-    }
-  }, [activeUnitId, currentUnitId, isSuperAdmin]);
-
-  const fetchStock = async () => {
+  const fetchStock = useCallback(async () => {
     try {
       setLoading(true);
       
       // Step 3.3.4: Use clean view for reading stock
       let query = supabase
-        .from('vw_unit_stock')
+        .from('vw_unit_stock' as never)
         .select('*');
 
       // Filter by unit if not super admin or if super admin selected a unit
@@ -58,19 +59,20 @@ const Stock = () => {
 
       if (error) throw error;
 
-      const formattedData = data.map((item: any) => ({
-        id: item.ingredient_id || item.id, // Handle potential view column naming
-        name: item.name,
-        unit_measure: item.unit_measure,
-        min_stock: item.min_stock,
+      const rows = (data || []) as StockViewRow[];
+      const formattedData = rows.map((item) => ({
+        id: item.ingredient_id || item.id || "",
+        name: item.name || "",
+        unit_measure: item.unit_measure || "",
+        min_stock: item.min_stock || 0,
         current_stock: item.current_stock || 0,
       }));
 
       setStockItems(formattedData);
-    } catch (error: any) {
-      console.error('Error fetching stock:', error);
+    } catch (error) {
+      const maybeError = error as { code?: string };
       // Fallback for development if view is missing
-      if (error.code === '42P01') {
+      if (maybeError?.code === '42P01') {
          toast.error("View 'vw_unit_stock' não encontrada. Verifique o banco de dados.");
       } else {
          toast.error("Erro ao carregar estoque");
@@ -78,7 +80,15 @@ const Stock = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeUnitId, currentUnitId]);
+
+  useEffect(() => {
+    if (activeUnitId || currentUnitId || isSuperAdmin) {
+      fetchStock();
+    } else {
+      setLoading(false);
+    }
+  }, [activeUnitId, currentUnitId, isSuperAdmin, fetchStock]);
 
   const registerStockMovement = async (ingredientId: string, quantity: number, type: 'compra' | 'producao' | 'venda' | 'perda' | 'ajuste') => {
     if (!currentUnitId) {
@@ -88,7 +98,7 @@ const Stock = () => {
 
     try {
       // ETAPA 7: USAR RPC (MOVIMENTAÇÃO DE ESTOQUE)
-      const { error } = await supabase.rpc('register_stock_movement', {
+      const { error } = await supabase.rpc('register_stock_movement' as never, {
         p_unit_id: currentUnitId,
         p_ingredient_id: ingredientId,
         p_quantity: quantity,
@@ -99,9 +109,9 @@ const Stock = () => {
 
       toast.success("Movimentação registrada com sucesso");
       fetchStock(); // Refresh list
-    } catch (error: any) {
-      console.error('Error registering movement:', error);
-      toast.error("Erro ao registrar movimentação: " + error.message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro ao registrar movimentação";
+      toast.error("Erro ao registrar movimentação: " + message);
     }
   };
 

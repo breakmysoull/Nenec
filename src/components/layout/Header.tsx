@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/contexts/PermissionsContext";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { roleLabels, AppRole } from "@/types/database";
 import { useStockAlerts } from "@/hooks/useStockAlerts";
@@ -29,8 +30,9 @@ interface HeaderProps {
   showBackButton?: boolean;
 }
 
-export const Header = ({ title = "Nenec", onMenuClick, showBackButton }: HeaderProps) => {
-  const { user, signOut, role, isSuperAdmin, units, activeUnitId, setActiveUnitId } = useAuth();
+export const Header = ({ title = "Codex", onMenuClick, showBackButton }: HeaderProps) => {
+  const { user, signOut } = useAuth();
+  const { role, baseRole, adminView, setAdminView, isSuperAdmin, units, activeUnitId, setActiveUnitId } = usePermissions();
   const { critical, count: alertCount } = useStockAlerts();
   const navigate = useNavigate();
   const [alertsOpen, setAlertsOpen] = useState(false);
@@ -38,6 +40,7 @@ export const Header = ({ title = "Nenec", onMenuClick, showBackButton }: HeaderP
   const initials = user?.email?.slice(0, 2).toUpperCase() || "U";
   const currentRole = role || 'operator';
   const activeUnit = units.find(u => u.id === activeUnitId);
+  const isAdminBase = baseRole === "admin" || baseRole === "super_admin";
 
   return (
     <header className="sticky top-0 z-40 bg-card border-b safe-area-top">
@@ -96,15 +99,38 @@ export const Header = ({ title = "Nenec", onMenuClick, showBackButton }: HeaderP
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {isSuperAdmin && (
-              <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-900 text-purple-100 uppercase tracking-wider">
-                Super Admin
-              </span>
-            )}
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          {isAdminBase && (
+            <Button
+              variant="outline"
+              size="icon"
+              className={`h-9 w-9 rounded-full text-[10px] font-semibold ${
+                adminView === "MANAGER"
+                  ? "bg-warning/15 text-warning border-warning/30"
+                  : adminView === "OPERATOR"
+                    ? "bg-primary/10 text-primary border-primary/30"
+                    : "border-dashed"
+              }`}
+              onClick={() => {
+                if (adminView === "MANAGER") {
+                  setAdminView("OPERATOR");
+                  return;
+                }
+                if (adminView === "OPERATOR") {
+                  setAdminView("MANAGER");
+                  return;
+                }
+                setAdminView("OPERATOR");
+              }}
+              title="Trocar visão"
+              aria-label="Trocar visão"
+            >
+              {adminView === "MANAGER" ? "MG" : adminView === "OPERATOR" ? "OP" : "?"}
+            </Button>
+          )}
           <Popover open={alertsOpen} onOpenChange={setAlertsOpen}>
             <PopoverTrigger asChild>
               <Button variant="ghost" size="icon" className="relative">

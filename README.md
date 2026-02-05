@@ -1,8 +1,8 @@
-# Nenec
+# Codex
 
 ## Project Info
 
-Sistema de operações para redes de fast food (antigo OpFood/SpeedyHub).
+Sistema de operações para redes de fast food.
 
 ## Como rodar o projeto
 

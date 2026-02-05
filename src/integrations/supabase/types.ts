@@ -834,9 +834,7 @@ export type Database = {
           is_mandatory: boolean | null
           name: string
           network_id: string
-          product_id: string | null
           target_role: Database["public"]["Enums"]["app_role"] | null
-          updated_at: string | null
         }
         Insert: {
           created_at?: string | null
@@ -846,9 +844,7 @@ export type Database = {
           is_mandatory?: boolean | null
           name: string
           network_id: string
-          product_id?: string | null
           target_role?: Database["public"]["Enums"]["app_role"] | null
-          updated_at?: string | null
         }
         Update: {
           created_at?: string | null
@@ -858,9 +854,7 @@ export type Database = {
           is_mandatory?: boolean | null
           name?: string
           network_id?: string
-          product_id?: string | null
           target_role?: Database["public"]["Enums"]["app_role"] | null
-          updated_at?: string | null
         }
         Relationships: [
           {
@@ -870,11 +864,164 @@ export type Database = {
             referencedRelation: "networks"
             referencedColumns: ["id"]
           },
+        ]
+      }
+      training_videos: {
+        Row: {
+          id: string
+          training_id: string
+          title: string | null
+          video_url: string | null
+          order_index: number | null
+          duration_seconds: number | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          training_id: string
+          title?: string | null
+          video_url?: string | null
+          order_index?: number | null
+          duration_seconds?: number | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          training_id?: string
+          title?: string | null
+          video_url?: string | null
+          order_index?: number | null
+          duration_seconds?: number | null
+          created_at?: string | null
+        }
+        Relationships: [
           {
-            foreignKeyName: "trainings_product_id_fkey"
-            columns: ["product_id"]
+            foreignKeyName: "training_videos_training_id_fkey"
+            columns: ["training_id"]
             isOneToOne: false
-            referencedRelation: "products"
+            referencedRelation: "trainings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      training_steps: {
+        Row: {
+          id: string
+          training_id: string
+          description: string | null
+          order_index: number | null
+          required: boolean | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          training_id: string
+          description?: string | null
+          order_index?: number | null
+          required?: boolean | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          training_id?: string
+          description?: string | null
+          order_index?: number | null
+          required?: boolean | null
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "training_steps_training_id_fkey"
+            columns: ["training_id"]
+            isOneToOne: false
+            referencedRelation: "trainings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_training_progress: {
+        Row: {
+          id: string
+          user_id: string
+          training_id: string
+          status: Database["public"]["Enums"]["training_status"]
+          score: number | null
+          started_at: string | null
+          completed_at: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          training_id: string
+          status?: Database["public"]["Enums"]["training_status"]
+          score?: number | null
+          started_at?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          training_id?: string
+          status?: Database["public"]["Enums"]["training_status"]
+          score?: number | null
+          started_at?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_training_progress_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_training_progress_training_id_fkey"
+            columns: ["training_id"]
+            isOneToOne: false
+            referencedRelation: "trainings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_training_steps: {
+        Row: {
+          id: string
+          user_id: string
+          training_step_id: string
+          checked_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          training_step_id: string
+          checked_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          training_step_id?: string
+          checked_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_training_steps_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_training_steps_training_step_id_fkey"
+            columns: ["training_step_id"]
+            isOneToOne: false
+            referencedRelation: "training_steps"
             referencedColumns: ["id"]
           },
         ]
@@ -1053,6 +1200,18 @@ export type Database = {
       has_unit_access: {
         Args: { _unit_id: string; _user_id: string }
         Returns: boolean
+      }
+      get_user_required_trainings: {
+        Args: { p_user_id: string }
+        Returns: {
+          id: string
+          name: string
+          description: string | null
+          is_mandatory: boolean
+          status: Database["public"]["Enums"]["training_status"]
+          progress: number
+          type: string
+        }[]
       }
     }
     Enums: {

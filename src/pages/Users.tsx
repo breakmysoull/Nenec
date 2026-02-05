@@ -4,13 +4,13 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Plus, Users as UsersIcon, Search, Mail, Shield, Loader2, Edit, Trash2, Building2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { AppRole, roleLabels } from "@/types/database";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
-import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/contexts/PermissionsContext";
 import { canManageUser, canCreateRole, normalizeRole } from "@/lib/permissions";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,21 @@ interface UserData {
   unitId: string;
   isActive: boolean;
 }
+
+type UserRoleRow = {
+  id: string;
+  role: AppRole;
+  is_active: boolean;
+  user_id: string;
+  unit_id: string | null;
+  profiles?: {
+    full_name: string | null;
+    email: string;
+  } | null;
+  units?: {
+    name: string | null;
+  } | null;
+};
 
 const roleColors: Record<AppRole, string> = {
   super_admin: "bg-purple-900 text-purple-100",
@@ -43,7 +58,7 @@ const Users = () => {
   const [users, setUsers] = useState<UserData[]>([]);
   const [units, setUnits] = useState<{id: string, name: string}[]>([]);
   const [loading, setLoading] = useState(true);
-  const { role: currentUserRole, isSuperAdmin, roles } = useAuth();
+  const { role: currentUserRole, isSuperAdmin, roles } = usePermissions();
   
   // Dialog State
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -58,21 +73,12 @@ const Users = () => {
   // Get current network to filter users
   const currentNetworkId = roles?.[0]?.network_id;
 
-  useEffect(() => {
-    if (currentNetworkId || isSuperAdmin) {
-      fetchUsers();
-      fetchUnits();
-    } else {
-      setLoading(false);
-    }
-  }, [currentNetworkId, isSuperAdmin]);
-
-  const fetchUnits = async () => {
+  const fetchUnits = useCallback(async () => {
     const { data } = await supabase.from('units').select('id, name');
     if (data) setUnits(data);
-  };
+  }, []);
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
       
@@ -103,24 +109,33 @@ const Users = () => {
 
       if (error) throw error;
 
-      const formattedUsers: UserData[] = data.map((item: any) => ({
-        id: item.user_id, // Use user_id as primary key for display
+      const rows = (data || []) as UserRoleRow[];
+      const formattedUsers: UserData[] = rows.map((item) => ({
+        id: item.user_id,
         name: item.profiles?.full_name || 'Usuário sem nome',
         email: item.profiles?.email || 'Sem email',
         role: item.role,
         unit: item.units?.name || 'Todas',
-        unitId: item.unit_id,
-        isActive: item.is_active
+        unitId: item.unit_id || "",
+        isActive: item.is_active,
       }));
 
       setUsers(formattedUsers);
-    } catch (error: any) {
-      console.error('Error fetching users:', error);
+    } catch {
       toast.error("Erro ao carregar usuários");
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentNetworkId, isSuperAdmin]);
+
+  useEffect(() => {
+    if (currentNetworkId || isSuperAdmin) {
+      fetchUsers();
+      fetchUnits();
+    } else {
+      setLoading(false);
+    }
+  }, [currentNetworkId, isSuperAdmin, fetchUsers, fetchUnits]);
 
   const handleOpenDialog = (user?: UserData) => {
     if (user) {
@@ -312,7 +327,7 @@ const Users = () => {
               <Input 
                 value={formData.email} 
                 onChange={(e) => setFormData({...formData, email: e.target.value})}
-                placeholder="Ex: maria@opfood.app"
+                placeholder="Ex: maria@codex.app"
                 disabled={!!editingUser} // Cannot change email
               />
             </div>

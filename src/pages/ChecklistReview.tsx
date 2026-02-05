@@ -22,8 +22,30 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-// Mock Data for Review List
-const mockExecutedChecklists = [
+type ChecklistReviewItem = {
+  id: number;
+  title: string;
+  status: "ok" | "nok";
+  reason?: string;
+  observation?: string;
+  photo?: string;
+};
+
+type ExecutedChecklist = {
+  id: number;
+  name: string;
+  unit: string;
+  executor: string;
+  startTime: string;
+  endTime: string;
+  date: string;
+  status: "ok" | "warning" | "critical";
+  reviewed: boolean;
+  reviewedBy?: string;
+  items: ChecklistReviewItem[];
+};
+
+const mockExecutedChecklists: ExecutedChecklist[] = [
   {
     id: 1,
     name: "Checklist de Abertura",
@@ -79,11 +101,11 @@ const reasonLabels: Record<string, string> = {
 };
 
 const ChecklistReview = () => {
-  const [selectedChecklist, setSelectedChecklist] = useState<any | null>(null);
+  const [selectedChecklist, setSelectedChecklist] = useState<ExecutedChecklist | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
 
-  const handleOpenReview = (checklist: any) => {
+  const handleOpenReview = (checklist: ExecutedChecklist) => {
     setSelectedChecklist(checklist);
     setIsReviewDialogOpen(true);
     setReviewNote("");
@@ -214,7 +236,7 @@ const ChecklistReview = () => {
               {/* Items List */}
               <div className="space-y-3">
                 <h4 className="font-bold text-sm text-muted-foreground uppercase tracking-wide">Itens Verificados</h4>
-                {selectedChecklist.items.map((item: any) => (
+                {selectedChecklist.items.map((item) => (
                   <div key={item.id} className={cn(
                     "p-3 rounded-lg border",
                     item.status === 'nok' ? "border-destructive/50 bg-destructive/5" : "border-border"

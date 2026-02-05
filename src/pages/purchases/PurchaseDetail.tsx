@@ -15,12 +15,14 @@ import {
   Clock
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/contexts/PermissionsContext";
 import { hasPermission } from "@/lib/permissions";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { OrderStatus } from "@/types/database";
+import { purchaseService } from "@/services/purchaseService";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -65,7 +67,8 @@ interface PurchaseOrderDetail {
 
 const PurchaseDetail = () => {
   const { id } = useParams();
-  const { role, user } = useAuth();
+  const { user } = useAuth();
+  const { role } = usePermissions();
   const navigate = useNavigate();
   const [order, setOrder] = useState<PurchaseOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -75,18 +78,12 @@ const PurchaseDetail = () => {
   const canApprove = hasPermission(role || 'operator', 'approve_order');
   const canReceive = hasPermission(role || 'operator', 'receive_order');
 
-  useEffect(() => {
-    if (id) {
-      fetchOrderDetail();
-    }
-  }, [id]);
-
-  const fetchOrderDetail = async () => {
+  const fetchOrderDetail = useCallback(async () => {
     try {
       setLoading(true);
       
       const { data, error } = await supabase
-        .from('purchase_orders' as any)
+        .from('purchase_orders' as never)
         .select(`
           *,
           suppliers (name, email, phone),
@@ -107,15 +104,20 @@ const PurchaseDetail = () => {
 
       if (error) throw error;
 
-      setOrder(data as any);
-    } catch (error: any) {
-      console.error('Error fetching order detail:', error);
+      setOrder(data as PurchaseOrderDetail);
+    } catch {
       toast.error("Erro ao carregar detalhes do pedido");
       navigate('/purchases');
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, navigate]);
+
+  useEffect(() => {
+    if (id) {
+      fetchOrderDetail();
+    }
+  }, [id, fetchOrderDetail]);
 
   const handleStatusChange = async (newStatus: OrderStatus) => {
     if (!order) return;
@@ -127,7 +129,12 @@ const PurchaseDetail = () => {
         await purchaseService.receivePurchaseOrder(order.id);
         toast.success("Pedido recebido e estoque atualizado");
       } else {
-        const updates: any = {
+        const updates: {
+          status: OrderStatus;
+          updated_at: string;
+          approved_at?: string;
+          approved_by?: string;
+        } = {
           status: newStatus,
           updated_at: new Date().toISOString(),
         };
@@ -138,7 +145,7 @@ const PurchaseDetail = () => {
         }
 
         const { error } = await supabase
-          .from('purchase_orders')
+          .from('purchase_orders' as never)
           .update(updates)
           .eq('id', order.id);
 
@@ -148,9 +155,9 @@ const PurchaseDetail = () => {
       }
 
       fetchOrderDetail(); // Refresh data
-    } catch (error: any) {
-      console.error('Error updating status:', error);
-      toast.error(error.message || "Erro ao atualizar status");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro ao atualizar status";
+      toast.error(message);
     } finally {
       setProcessing(false);
     }

@@ -13,6 +13,7 @@ CREATE TABLE public.trainings (
   network_id UUID REFERENCES public.networks(id) ON DELETE CASCADE NOT NULL,
   name TEXT NOT NULL,
   description TEXT,
+  thumbnail_url TEXT, -- Added for MVP
   target_role app_role, -- Ex: 'operador', 'cozinha', 'gerente'
   is_mandatory BOOLEAN DEFAULT false,
   is_active BOOLEAN DEFAULT true,

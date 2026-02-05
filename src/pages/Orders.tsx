@@ -6,7 +6,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Plus, ShoppingCart, Package, Edit, Send, CheckCircle, Archive, Clock } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OrderStatus } from "@/types/database";
-import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/contexts/PermissionsContext";
 import { hasPermission } from "@/lib/permissions";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -75,7 +75,7 @@ const mockOrders: Order[] = [
 ];
 
 const Orders = () => {
-  const { role } = useAuth();
+  const { role } = usePermissions();
   const [activeTab, setActiveTab] = useState<string>("all");
 
   const getOrderState = (order: Order): OrderState => {

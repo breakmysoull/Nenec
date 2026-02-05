@@ -4,6 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { PermissionsProvider } from "@/contexts/PermissionsContext";
+import { TrainingsProvider } from "@/contexts/TrainingsContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 
 // Auth Pages
@@ -17,8 +19,11 @@ import Purchases from "./pages/purchases/PurchasesList";
 import PurchaseDetail from "./pages/purchases/PurchaseDetail";
 import Checklists from "./pages/Checklists";
 import ChecklistReview from "./pages/ChecklistReview";
-import Training from "./pages/Training";
-import TrainingPlayer from "./pages/TrainingPlayer";
+// import Training from "./pages/Training";
+// import TrainingPlayer from "./pages/TrainingPlayer";
+import { MyTrainings } from "./modules/training/pages/MyTrainings";
+import { TrainingDetail } from "./modules/training/pages/TrainingDetail";
+import { LessonPlayer } from "./modules/training/pages/LessonPlayer";
 import Products from "./pages/Products";
 import Units from "./pages/Units";
 import Users from "./pages/Users";
@@ -29,11 +34,13 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
+      <PermissionsProvider>
+        <TrainingsProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <Routes>
             {/* Public Routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
@@ -99,7 +106,7 @@ const App = () => (
               path="/training"
               element={
                 <ProtectedRoute requiredPermission="view_training">
-                  <Training />
+                  <MyTrainings />
                 </ProtectedRoute>
               }
             />
@@ -107,7 +114,15 @@ const App = () => (
               path="/training/:id"
               element={
                 <ProtectedRoute requiredPermission="view_training">
-                  <TrainingPlayer />
+                  <TrainingDetail />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/training/:trainingId/lesson/:lessonId"
+              element={
+                <ProtectedRoute requiredPermission="view_training">
+                  <LessonPlayer />
                 </ProtectedRoute>
               }
             />
@@ -138,9 +153,11 @@ const App = () => (
             
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+              </Routes>
+            </BrowserRouter>
+          </TooltipProvider>
+        </TrainingsProvider>
+      </PermissionsProvider>
     </AuthProvider>
   </QueryClientProvider>
 );

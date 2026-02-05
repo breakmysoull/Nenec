@@ -2,6 +2,10 @@ import { supabase } from "@/integrations/supabase/client";
 
 export { supabase };
 
+type SignInResult = Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>;
+type SetSessionResult = Awaited<ReturnType<typeof supabase.auth.setSession>>;
+type SessionCheckResult = Awaited<ReturnType<typeof supabase.auth.getSession>>;
+
 // Auth helpers
 export const signUp = async (email: string, password: string, fullName: string) => {
   const { data, error } = await supabase.auth.signUp({
@@ -31,7 +35,7 @@ export const signIn = async (email: string, password: string) => {
          password,
        });
    
-       return await Promise.race([signInPromise, timeoutPromise]) as any;
+       return (await Promise.race([signInPromise, timeoutPromise])) as SignInResult;
     };
 
     // First Attempt
@@ -39,7 +43,7 @@ export const signIn = async (email: string, password: string) => {
       const result = await attemptLogin(5000);
       console.log("Supabase Lib: signInWithPassword success (1st attempt):", result);
       return result;
-    } catch (firstErr: any) {
+    } catch (firstErr) {
       console.warn("Supabase Lib: First login attempt failed/timed out:", firstErr);
       
       // FALLBACK: Try Direct REST API Login
@@ -60,7 +64,15 @@ export const signIn = async (email: string, password: string) => {
           body: JSON.stringify({ email, password })
         });
 
-        const data = await response.json();
+        const data = (await response.json()) as {
+          error_description?: string;
+          msg?: string;
+          access_token: string;
+          refresh_token: string;
+          user: unknown;
+          token_type?: string;
+          expires_in: number;
+        };
 
         if (!response.ok) {
           throw new Error(data.error_description || data.msg || "REST API Login failed");
@@ -79,7 +91,7 @@ export const signIn = async (email: string, password: string) => {
              setTimeout(() => reject(new Error("setSession timeout")), 3000);
            });
 
-           const { data: sessionData, error: sessionError } = await Promise.race([setSessionPromise, timeoutPromise]) as any;
+           const { data: sessionData, error: sessionError } = (await Promise.race([setSessionPromise, timeoutPromise])) as SetSessionResult;
 
            if (sessionError) throw sessionError;
            
@@ -120,18 +132,19 @@ export const signIn = async (email: string, password: string) => {
            }
         }
 
-      } catch (restErr: any) {
+      } catch (restErr) {
         console.error("Supabase Lib: REST fallback failed:", restErr);
         // If REST failed, throw the original error or the REST error
         throw restErr;
       }
     }
 
-  } catch (err: any) {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error occurred";
     console.error("Supabase Lib: Unexpected error or timeout in signIn:", err);
     return { 
       data: { user: null, session: null }, 
-      error: { message: err.message || "Unknown error occurred" } 
+      error: { message } 
     };
   }
 };
@@ -204,7 +217,7 @@ export const checkConnection = async () => {
     // Check auth service availability instead of database
     const checkPromise = supabase.auth.getSession();
 
-    const { error } = await Promise.race([checkPromise, timeoutPromise]) as any;
+    const { error } = (await Promise.race([checkPromise, timeoutPromise])) as SessionCheckResult;
       
     if (error) throw error;
     return true;

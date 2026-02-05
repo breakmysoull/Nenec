@@ -4,10 +4,12 @@ RETURNS TABLE (
   id uuid,
   name text,
   description text,
+  thumbnail_url text, -- Added
   is_mandatory boolean,
   status training_status,
   progress integer,
-  type text
+  type text,
+  duration_seconds integer -- Added total duration
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -27,6 +29,7 @@ BEGIN
     t.id,
     t.name,
     t.description,
+    t.thumbnail_url,
     t.is_mandatory,
     COALESCE(ut.status, 'pendente'::training_status) as status,
     COALESCE(ut.score, 0) as progress,
@@ -34,7 +37,8 @@ BEGIN
       WHEN t.is_mandatory THEN 'obrigatorio'
       WHEN t.target_role = v_role THEN 'cargo'
       ELSE 'opcional'
-    END as type
+    END as type,
+    (SELECT COALESCE(SUM(tv.duration_seconds), 0)::integer FROM training_videos tv WHERE tv.training_id = t.id) as duration_seconds
   FROM trainings t
   LEFT JOIN user_training_progress ut ON ut.training_id = t.id AND ut.user_id = p_user_id
   WHERE t.network_id = v_network_id

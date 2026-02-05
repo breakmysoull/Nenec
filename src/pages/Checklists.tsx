@@ -36,6 +36,16 @@ interface ChecklistItemMock {
   isRequired: boolean;
 }
 
+type ChecklistAnswer = {
+  status?: 'ok' | 'nok';
+  reason?: string;
+  observation?: string;
+  photo?: string | null;
+  timestamp?: string;
+  type?: 'photo';
+  url?: string;
+};
+
 const mockChecklistItems: Record<string, ChecklistItemMock[]> = {
   '1': [
     { id: '1', title: 'Verificar temperatura dos freezers (-18°C)', type: 'check', isRequired: true },
@@ -93,7 +103,7 @@ const typeIcons = {
 const Checklists = () => {
   const [activeChecklistId, setActiveChecklistId] = useState<number | null>(null);
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, any>>({});
+  const [answers, setAnswers] = useState<Record<string, ChecklistAnswer>>({});
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [completed, setCompleted] = useState(false);
@@ -118,7 +128,7 @@ const Checklists = () => {
     setCompleted(false);
   };
 
-  const handleAnswer = (answer: any) => {
+  const handleAnswer = (answer: ChecklistAnswer) => {
     if (!currentItem) return;
     
     setAnswers(prev => ({ ...prev, [currentItem.id]: answer }));

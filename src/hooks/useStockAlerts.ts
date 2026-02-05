@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/contexts/PermissionsContext';
 
 export interface StockAlert {
   id: string;
@@ -10,13 +10,22 @@ export interface StockAlert {
   unit_measure: string;
 }
 
+type StockAlertRow = {
+  id?: string | null;
+  name?: string | null;
+  current_stock?: number | null;
+  min_stock?: number | null;
+  unit_measure?: string | null;
+};
+
 export function useStockAlerts() {
-  const { activeUnitId, isSuperAdmin } = useAuth();
+  const { activeUnitId, isSuperAdmin } = usePermissions();
   const [lowStockItems, setLowStockItems] = useState<StockAlert[]>([]);
   const [loading, setLoading] = useState(true);
+  const normalizedUnitId = activeUnitId === "null" ? null : activeUnitId;
 
   useEffect(() => {
-    if (!activeUnitId && !isSuperAdmin) {
+    if (!normalizedUnitId && !isSuperAdmin) {
       setLowStockItems([]);
       setLoading(false);
       return;
@@ -25,25 +34,19 @@ export function useStockAlerts() {
     const fetchAlerts = async () => {
       try {
         setLoading(true);
-        
-        // Query the view as requested
         let query = supabase
-          .from('vw_unit_stock')
-          .select('id, name, current_stock, min_stock, unit_measure, unit_id')
-          .lt('current_stock', supabase.rpc('min_stock')); // This syntax is wrong for column comparison in Supabase/PostgREST usually
+          .from('vw_unit_stock' as never)
+          .select('*');
 
-        // Correct way to compare columns in PostgREST is usually via a filter that supports it, 
-        // but simple .lt('current_stock', 'min_stock') interprets 2nd arg as value, not column.
-        // We usually need to fetch all and filter in JS, or use a custom RPC, or the view should have a boolean 'is_low_stock'.
-        
-        // If the view is "clean for reading", maybe it has an 'status' column?
-        // Let's assume we fetch all for the unit and filter in JS for now to be safe,
-        // unless the view is huge (unlikely for MVP).
-        
-        const { data, error } = await supabase
-          .from('vw_unit_stock')
-          .select('*')
-          .eq('unit_id', activeUnitId);
+        if (normalizedUnitId) {
+          query = query.eq('unit_id', normalizedUnitId);
+        } else if (!isSuperAdmin) {
+          setLowStockItems([]);
+          setLoading(false);
+          return;
+        }
+
+        const { data, error } = await query;
 
         if (error) {
           // If view doesn't exist (42P01), we might need a fallback, 
@@ -53,12 +56,15 @@ export function useStockAlerts() {
         }
 
         // Filter for low stock
-        const alerts = (data || []).filter((item: any) => {
-          // Ensure we have numbers
-          const current = Number(item.current_stock || 0);
-          const min = Number(item.min_stock || 0);
-          return current <= min && min > 0; // Alert if current is less or equal to min
-        });
+        const alerts = ((data || []) as StockAlertRow[])
+          .map((item) => ({
+            id: item.id || "",
+            name: item.name || "",
+            current_stock: Number(item.current_stock || 0),
+            min_stock: Number(item.min_stock || 0),
+            unit_measure: item.unit_measure || "",
+          }))
+          .filter((item) => item.current_stock <= item.min_stock && item.min_stock > 0);
 
         setLowStockItems(alerts);
       } catch (error) {
@@ -75,7 +81,7 @@ export function useStockAlerts() {
     // Set up realtime subscription if needed later
     // const subscription = supabase...
 
-  }, [activeUnitId, isSuperAdmin]);
+  }, [normalizedUnitId, isSuperAdmin]);
 
   return {
     lowStockItems,
