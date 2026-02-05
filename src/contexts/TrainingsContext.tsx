@@ -60,13 +60,13 @@ const initialTrainingsMock: TrainingMock[] = [
 const initialDishesMock: DishMock[] = [
   {
     id: 1,
-    title: "Lasanha da Casa",
+    title: "Duplo-X",
     description: "Montagem, tempo de forno e padrão de finalização.",
     videoUrl: "https://youtube.com/shorts/457y_D7M06c?feature=share",
   },
   {
     id: 2,
-    title: "Salada Caesar",
+    title: "Corte do pão",
     description: "Cortes, montagem e molho final.",
     videoUrl: "https://www.youtube.com/shorts/a_M0MFywg-s",
   },
