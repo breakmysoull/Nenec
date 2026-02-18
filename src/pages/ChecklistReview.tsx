@@ -2,7 +2,6 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { 
   ClipboardCheck, 
   Filter, 
@@ -16,14 +15,17 @@ import {
   AlertCircle,
   CheckSquare
 } from "lucide-react";
-import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { useEffect, useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { checklistService } from "@/services/checklistService";
+import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/contexts/PermissionsContext";
 
 type ChecklistReviewItem = {
-  id: number;
+  id: string;
   title: string;
   status: "ok" | "nok";
   reason?: string;
@@ -32,7 +34,7 @@ type ChecklistReviewItem = {
 };
 
 type ExecutedChecklist = {
-  id: number;
+  id: string;
   name: string;
   unit: string;
   executor: string;
@@ -45,53 +47,6 @@ type ExecutedChecklist = {
   items: ChecklistReviewItem[];
 };
 
-const mockExecutedChecklists: ExecutedChecklist[] = [
-  {
-    id: 1,
-    name: "Checklist de Abertura",
-    unit: "Loja Centro",
-    executor: "Maria Silva",
-    startTime: "07:55",
-    endTime: "08:15",
-    date: "Hoje",
-    status: "ok", // ok, warning, critical
-    reviewed: false,
-    items: [
-      { id: 1, title: "Temperaturas Freezers", status: "ok" },
-      { id: 2, title: "Limpeza Bancadas", status: "ok" },
-      { id: 3, title: "Uniforme Completo", status: "ok", photo: "https://images.unsplash.com/photo-1581349485608-9469926a8e5e?auto=format&fit=crop&q=80&w=200" }
-    ]
-  },
-  {
-    id: 2,
-    name: "Checklist da Praça",
-    unit: "Loja Shopping",
-    executor: "João Souza",
-    startTime: "11:00",
-    endTime: "11:20",
-    date: "Hoje",
-    status: "critical",
-    reviewed: false,
-    items: [
-      { id: 1, title: "Molhos na Validade", status: "ok" },
-      { id: 2, title: "Chão Limpo", status: "nok", reason: "sujo", observation: "Óleo derramado próximo à fritadeira", photo: "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&q=80&w=200" }
-    ]
-  },
-  {
-    id: 3,
-    name: "Checklist de Fechamento",
-    unit: "Loja Centro",
-    executor: "Carlos Oliveira",
-    startTime: "22:30",
-    endTime: "23:00",
-    date: "Ontem",
-    status: "warning",
-    reviewed: true,
-    reviewedBy: "Gerente Ana",
-    items: []
-  }
-];
-
 const reasonLabels: Record<string, string> = {
   sujo: "Sujo / Limpeza",
   falta: "Falta de Item",
@@ -101,20 +56,89 @@ const reasonLabels: Record<string, string> = {
 };
 
 const ChecklistReview = () => {
+  const { user } = useAuth();
+  const { activeUnitId, isSuperAdmin } = usePermissions();
+  const [executedChecklists, setExecutedChecklists] = useState<ExecutedChecklist[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedChecklist, setSelectedChecklist] = useState<ExecutedChecklist | null>(null);
-  const [reviewNote, setReviewNote] = useState("");
   const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
+  const [managerObservation, setManagerObservation] = useState("");
 
-  const handleOpenReview = (checklist: ExecutedChecklist) => {
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCompleted = async () => {
+      if (!activeUnitId && !isSuperAdmin) {
+        setExecutedChecklists([]);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      const runs = await checklistService.getCompletedChecklistRuns(activeUnitId || undefined, isSuperAdmin);
+      if (!cancelled) {
+        setExecutedChecklists(
+          runs.map((run) => ({
+            id: run.id,
+            name: run.name,
+            unit: run.unit,
+            executor: run.executor,
+            startTime: run.startTime,
+            endTime: run.endTime,
+            date: run.date,
+            status: run.status,
+            reviewed: Boolean(run.reviewedAt),
+            items: [],
+          }))
+        );
+        setLoading(false);
+      }
+    };
+
+    loadCompleted();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeUnitId, isSuperAdmin]);
+
+  const handleOpenReview = async (checklist: ExecutedChecklist) => {
     setSelectedChecklist(checklist);
     setIsReviewDialogOpen(true);
-    setReviewNote("");
+    setManagerObservation("");
+    const items = await checklistService.getChecklistRunDetails(checklist.id);
+    const sortedItems = [...items].sort((a, b) => {
+      if (a.status === b.status) return 0;
+      return a.status === "nok" ? -1 : 1;
+    });
+    setSelectedChecklist((prev) => (prev ? { ...prev, items: sortedItems } : prev));
   };
 
-  const handleConfirmReview = () => {
-    toast.success("Checklist revisado com sucesso!");
-    setIsReviewDialogOpen(false);
-    // Here we would update the backend
+  const handleConfirmReview = async () => {
+    if (!selectedChecklist || !user) return;
+
+    try {
+      const success = await checklistService.reviewChecklist(
+        selectedChecklist.id,
+        managerObservation,
+        user.id
+      );
+
+      if (!success) {
+        return;
+      }
+
+      setExecutedChecklists((prev) =>
+        prev.map((item) =>
+          item.id === selectedChecklist.id ? { ...item, reviewed: true } : item
+        )
+      );
+      setSelectedChecklist((prev) => (prev ? { ...prev, reviewed: true } : prev));
+      toast.success("Checklist revisado com sucesso!");
+      setIsReviewDialogOpen(false);
+    } catch (error) {
+      console.error("Erro ao enviar revisão:", error);
+    }
   };
 
   return (
@@ -149,62 +173,81 @@ const ChecklistReview = () => {
 
         {/* Checklist List */}
         <section className="space-y-3">
-          {mockExecutedChecklists.map((checklist) => (
-            <div 
-              key={checklist.id}
-              className="bg-card rounded-xl border shadow-sm p-4 cursor-pointer hover:border-primary/50 transition-colors"
-              onClick={() => handleOpenReview(checklist)}
-            >
-              <div className="flex justify-between items-start mb-3">
-                <div>
-                  <h3 className="font-bold text-base">{checklist.name}</h3>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                    <Building2 className="w-3.5 h-3.5" />
-                    {checklist.unit}
-                  </div>
-                </div>
-                {checklist.reviewed ? (
-                  <div className="px-2 py-1 bg-success/10 text-success text-xs font-bold rounded flex items-center gap-1">
-                    <CheckSquare className="w-3 h-3" />
-                    REVISADO
-                  </div>
-                ) : (
-                  <div className="px-2 py-1 bg-warning/10 text-warning text-xs font-bold rounded flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    PENDENTE
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between text-sm border-t pt-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
-                    {checklist.executor.charAt(0)}
-                  </div>
-                  <span className="text-muted-foreground">{checklist.executor}</span>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  {checklist.status === 'ok' && (
-                    <span className="text-success flex items-center gap-1 text-xs font-medium">
-                      <CheckCircle2 className="w-4 h-4" /> Sem falhas
-                    </span>
-                  )}
-                  {checklist.status === 'warning' && (
-                    <span className="text-warning flex items-center gap-1 text-xs font-medium">
-                      <AlertTriangle className="w-4 h-4" /> Atenção
-                    </span>
-                  )}
-                  {checklist.status === 'critical' && (
-                    <span className="text-destructive flex items-center gap-1 text-xs font-medium">
-                      <AlertCircle className="w-4 h-4" /> Falhas
-                    </span>
-                  )}
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                </div>
-              </div>
+          {loading ? (
+            <div className="flex items-center justify-center py-6 text-muted-foreground">
+              <Clock className="w-5 h-5 animate-spin" />
             </div>
-          ))}
+          ) : executedChecklists.length === 0 ? (
+            <EmptyState
+              icon={ClipboardCheck}
+              title="Sem checklists executados"
+              description="Não há checklists finalizados para revisar"
+            />
+          ) : (
+            executedChecklists.map((checklist) => (
+              <div 
+                key={checklist.id}
+                className="bg-card rounded-xl border shadow-sm p-4 cursor-pointer hover:border-primary/50 transition-colors"
+                onClick={() => handleOpenReview(checklist)}
+              >
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <h3 className="font-bold text-base">{checklist.name}</h3>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                      <Building2 className="w-3.5 h-3.5" />
+                      {checklist.unit}
+                    </div>
+                  </div>
+                <div className="flex flex-col items-end gap-2">
+                  {checklist.status === "critical" && (
+                    <div className="px-2 py-1 bg-destructive/10 text-destructive text-xs font-bold rounded">
+                      Com Falhas
+                    </div>
+                  )}
+                  {checklist.reviewed ? (
+                    <div className="px-2 py-1 bg-success/10 text-success text-xs font-bold rounded flex items-center gap-1">
+                      <CheckSquare className="w-3 h-3" />
+                      REVISADO
+                    </div>
+                  ) : (
+                    <div className="px-2 py-1 bg-warning/10 text-warning text-xs font-bold rounded flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      PENDENTE
+                    </div>
+                  )}
+                </div>
+                </div>
+
+                <div className="flex items-center justify-between text-sm border-t pt-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
+                      {checklist.executor.charAt(0)}
+                    </div>
+                    <span className="text-muted-foreground">{checklist.executor}</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    {checklist.status === 'ok' && (
+                      <span className="text-success flex items-center gap-1 text-xs font-medium">
+                        <CheckCircle2 className="w-4 h-4" /> Sem falhas
+                      </span>
+                    )}
+                    {checklist.status === 'warning' && (
+                      <span className="text-warning flex items-center gap-1 text-xs font-medium">
+                        <AlertTriangle className="w-4 h-4" /> Atenção
+                      </span>
+                    )}
+                    {checklist.status === 'critical' && (
+                      <span className="text-destructive flex items-center gap-1 text-xs font-medium">
+                        <AlertCircle className="w-4 h-4" /> Falhas
+                      </span>
+                    )}
+                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
         </section>
       </div>
 
@@ -235,7 +278,12 @@ const ChecklistReview = () => {
 
               {/* Items List */}
               <div className="space-y-3">
-                <h4 className="font-bold text-sm text-muted-foreground uppercase tracking-wide">Itens Verificados</h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-sm text-muted-foreground uppercase tracking-wide">Itens Verificados</h4>
+                  <span className="text-xs text-muted-foreground">
+                    {selectedChecklist.items.filter((item) => item.status === "nok").length} falhas encontradas
+                  </span>
+                </div>
                 {selectedChecklist.items.map((item) => (
                   <div key={item.id} className={cn(
                     "p-3 rounded-lg border",
@@ -282,8 +330,8 @@ const ChecklistReview = () => {
                     <label className="text-sm font-medium">Observação do Gestor (Opcional)</label>
                     <Textarea 
                       placeholder="Ex: Bom trabalho, mas atenção à limpeza..." 
-                      value={reviewNote}
-                      onChange={(e) => setReviewNote(e.target.value)}
+                      value={managerObservation}
+                      onChange={(e) => setManagerObservation(e.target.value)}
                     />
                   </div>
                   <Button className="w-full" size="lg" onClick={handleConfirmReview}>

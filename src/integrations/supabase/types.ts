@@ -229,6 +229,9 @@ export type Database = {
           created_at: string | null
           id: string
           is_complete: boolean | null
+          manager_observation: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
           shift_id: string | null
           started_at: string | null
           unit_id: string
@@ -240,6 +243,9 @@ export type Database = {
           created_at?: string | null
           id?: string
           is_complete?: boolean | null
+          manager_observation?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           shift_id?: string | null
           started_at?: string | null
           unit_id: string
@@ -251,6 +257,9 @@ export type Database = {
           created_at?: string | null
           id?: string
           is_complete?: boolean | null
+          manager_observation?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           shift_id?: string | null
           started_at?: string | null
           unit_id?: string

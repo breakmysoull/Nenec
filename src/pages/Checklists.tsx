@@ -8,33 +8,27 @@ import {
   Sun, 
   Moon,
   CheckCircle2,
-  Circle,
   Camera,
   Loader2,
   ChevronLeft,
   AlertTriangle,
   XCircle,
   ArrowRight,
-  ThumbsUp
+  ThumbsUp,
+  ChevronRight,
+  Clock
 } from "lucide-react";
-import { ChecklistType } from "@/types/database";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerFooter } from "@/components/ui/drawer";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-
-// Mock Checklist Items (Simulating DB)
-interface ChecklistItemMock {
-  id: string;
-  title: string;
-  type: 'check' | 'photo' | 'observation';
-  isRequired: boolean;
-}
+import { checklistService, TodayChecklist } from "@/services/checklistService";
+import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/contexts/PermissionsContext";
 
 type ChecklistAnswer = {
   status?: 'ok' | 'nok';
@@ -46,54 +40,6 @@ type ChecklistAnswer = {
   url?: string;
 };
 
-const mockChecklistItems: Record<string, ChecklistItemMock[]> = {
-  '1': [
-    { id: '1', title: 'Verificar temperatura dos freezers (-18°C)', type: 'check', isRequired: true },
-    { id: '2', title: 'Higienizar bancada de preparação', type: 'check', isRequired: true },
-    { id: '3', title: 'Foto do uniforme completo', type: 'photo', isRequired: true },
-    { id: '4', title: 'Verificar validade dos molhos na pista', type: 'check', isRequired: true },
-    { id: '5', title: 'Ligar equipamentos da chapa', type: 'check', isRequired: true },
-  ],
-  '2': [
-    { id: '6', title: 'Reposição de embalagens', type: 'check', isRequired: true },
-    { id: '7', title: 'Limpeza do chão (área de fritura)', type: 'check', isRequired: true },
-  ]
-};
-
-// Mock data
-const mockChecklists = [
-  { 
-    id: 1, 
-    name: "Checklist de Abertura",
-    type: "abertura" as ChecklistType,
-    totalItems: 5,
-    completedItems: 0,
-    status: "pending",
-    scheduledFor: "08:00",
-    deadline: "10:00"
-  },
-  { 
-    id: 2, 
-    name: "Checklist da Praça",
-    type: "praca" as ChecklistType,
-    totalItems: 2,
-    completedItems: 0,
-    status: "pending",
-    scheduledFor: "12:00",
-    deadline: "14:00"
-  },
-  { 
-    id: 3, 
-    name: "Checklist de Fechamento",
-    type: "fechamento" as ChecklistType,
-    totalItems: 15,
-    completedItems: 0,
-    status: "pending",
-    scheduledFor: "22:00",
-    deadline: "23:59"
-  },
-];
-
 const typeIcons = {
   abertura: Sunrise,
   praca: Sun,
@@ -101,12 +47,23 @@ const typeIcons = {
 };
 
 const Checklists = () => {
-  const [activeChecklistId, setActiveChecklistId] = useState<number | null>(null);
+  const { user } = useAuth();
+  const { activeUnitId } = usePermissions();
+  const [checklists, setChecklists] = useState<TodayChecklist[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeChecklistId, setActiveChecklistId] = useState<string | null>(null);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, ChecklistAnswer>>({});
   const [uploading, setUploading] = useState(false);
+  const [actionLocked, setActionLocked] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const itemTopRef = useRef<HTMLDivElement>(null);
   const [completed, setCompleted] = useState(false);
+  const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
+  const [isFinalDrawerOpen, setIsFinalDrawerOpen] = useState(false);
+  const [finalSetupPhoto, setFinalSetupPhoto] = useState<string | null>(null);
+  const [finalStockPhoto, setFinalStockPhoto] = useState<string | null>(null);
   
   // NOK Handling
   const [isNokDrawerOpen, setIsNokDrawerOpen] = useState(false);
@@ -115,28 +72,126 @@ const Checklists = () => {
   const [nokPhoto, setNokPhoto] = useState<string | null>(null);
   const nokFileInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadChecklists = async () => {
+      if (!activeUnitId) {
+        setChecklists([]);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      const data = await checklistService.getTodayChecklists(activeUnitId);
+      if (!cancelled) {
+        setChecklists(data);
+        setLoading(false);
+      }
+    };
+
+    loadChecklists();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeUnitId]);
+
+  useEffect(() => {
+    if (checklists.length === 0 || activeChecklistId) return;
+    const raw = localStorage.getItem("checklist-progress");
+    if (!raw) return;
+
+    try {
+      const stored = JSON.parse(raw) as {
+        checklistId: string;
+        currentItemIndex: number;
+        answers: Record<string, ChecklistAnswer>;
+        runId: string | null;
+      };
+
+      const exists = checklists.some((checklist) => checklist.id === stored.checklistId);
+      if (!exists) return;
+
+      setActiveChecklistId(stored.checklistId);
+      setCurrentItemIndex(stored.currentItemIndex || 0);
+      setAnswers(stored.answers || {});
+      setActiveRunId(stored.runId || null);
+      setCompleted(false);
+    } catch (error) {
+      console.error("Erro ao restaurar progresso do checklist:", error);
+    }
+  }, [checklists, activeChecklistId]);
+
+  useEffect(() => {
+    if (!activeChecklistId) {
+      localStorage.removeItem("checklist-progress");
+      return;
+    }
+
+    const payload = {
+      checklistId: activeChecklistId,
+      currentItemIndex,
+      answers,
+      runId: activeRunId,
+    };
+
+    localStorage.setItem("checklist-progress", JSON.stringify(payload));
+  }, [activeChecklistId, activeRunId, answers, currentItemIndex]);
+
+  useEffect(() => {
+    itemTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [currentItemIndex]);
+
   // Get active checklist details
-  const activeChecklist = mockChecklists.find(c => c.id === activeChecklistId);
-  const items = activeChecklistId ? (mockChecklistItems[String(activeChecklistId)] || []) : [];
+  const activeChecklist = checklists.find(c => c.id === activeChecklistId);
+  const items = activeChecklist?.items ?? [];
   const currentItem = items[currentItemIndex];
   const progress = items.length > 0 ? ((currentItemIndex) / items.length) * 100 : 0;
 
-  const handleStartChecklist = (id: number) => {
+  const handleStartChecklist = async (id: string) => {
     setActiveChecklistId(id);
     setCurrentItemIndex(0);
     setAnswers({});
     setCompleted(false);
+    setActiveRunId(null);
+    setActionLocked(false);
+
+    if (user && activeUnitId) {
+      const runId = await checklistService.startChecklistRun(id, activeUnitId, user.id);
+      setActiveRunId(runId);
+    }
   };
 
-  const handleAnswer = (answer: ChecklistAnswer) => {
+  const handleAnswer = async (answer: ChecklistAnswer) => {
     if (!currentItem) return;
+    if (actionLocked) return;
+    setActionLocked(true);
     
     setAnswers(prev => ({ ...prev, [currentItem.id]: answer }));
+
+    if (activeRunId && user) {
+      const status = answer.status ?? "ok";
+      const photoUrl = answer.url || answer.photo || null;
+      void checklistService.saveChecklistItemResult({
+        runId: activeRunId,
+        itemId: currentItem.id,
+        status,
+        reason: answer.reason,
+        observation: answer.observation,
+        photoUrl,
+        userId: user.id,
+      });
+    }
     
     if (currentItemIndex < items.length - 1) {
-      setTimeout(() => setCurrentItemIndex(prev => prev + 1), 200); // Small delay for animation
+      setTimeout(() => {
+        setCurrentItemIndex(prev => prev + 1);
+        setActionLocked(false);
+      }, 200);
     } else {
-      finishChecklist();
+      setIsFinalDrawerOpen(true);
+      setActionLocked(false);
     }
   };
 
@@ -147,8 +202,8 @@ const Checklists = () => {
     setNokPhoto(null);
   };
 
-  const confirmNok = () => {
-    handleAnswer({ 
+  const confirmNok = async () => {
+    await handleAnswer({ 
       status: 'nok', 
       reason: nokReason, 
       observation: nokObservation,
@@ -160,25 +215,45 @@ const Checklists = () => {
   };
 
   const finishChecklist = async () => {
+    if (activeRunId) {
+      await checklistService.completeChecklistRun(activeRunId);
+    }
+
+    if (activeChecklist) {
+      setChecklists((prev) =>
+        prev.map((checklist) =>
+          checklist.id === activeChecklist.id
+            ? { ...checklist, status: "completed", completedItems: checklist.totalItems }
+            : checklist
+        )
+      );
+    }
+
     setCompleted(true);
     toast.success("Checklist finalizado com sucesso!");
-    // Here we would save to Supabase
+    localStorage.removeItem("checklist-progress");
   };
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !currentItem) return;
 
     try {
       setUploading(true);
-      // Simulate upload
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      const fakeUrl = URL.createObjectURL(file);
-      handleAnswer({ type: 'photo', url: fakeUrl });
+      if (!activeRunId) {
+        console.error("Checklist run não iniciado");
+        return;
+      }
+
+      const uploadedUrl = await checklistService.uploadChecklistPhoto(file, activeRunId, currentItem.id);
+      if (!uploadedUrl) {
+        return;
+      }
+
+      handleAnswer({ type: 'photo', url: uploadedUrl });
       toast.success("Foto salva!");
     } catch (error) {
-      toast.error("Erro ao salvar foto");
+      console.error("Erro ao salvar foto:", error);
     } finally {
       setUploading(false);
     }
@@ -186,30 +261,95 @@ const Checklists = () => {
 
   const handleNokPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !currentItem) return;
 
     try {
       setUploading(true);
-      // Simulate upload
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      const fakeUrl = URL.createObjectURL(file);
-      setNokPhoto(fakeUrl);
+      if (!activeRunId) {
+        console.error("Checklist run não iniciado");
+        return;
+      }
+
+      const uploadedUrl = await checklistService.uploadChecklistPhoto(file, activeRunId, currentItem.id);
+      if (!uploadedUrl) {
+        return;
+      }
+
+      setNokPhoto(uploadedUrl);
       toast.success("Foto do incidente anexada!");
     } catch (error) {
-      toast.error("Erro ao salvar foto");
+      console.error("Erro ao salvar foto:", error);
     } finally {
       setUploading(false);
     }
   };
 
+  const handleFinalSetupUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeRunId) return;
+    try {
+      setUploading(true);
+      const url = await checklistService.uploadFinalPhoto(file, activeRunId, "setup");
+      if (url) setFinalSetupPhoto(url);
+      else toast.error("Falha ao enviar foto da praça montada");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFinalStockUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeRunId) return;
+    try {
+      setUploading(true);
+      const url = await checklistService.uploadFinalPhoto(file, activeRunId, "stock");
+      if (url) setFinalStockPhoto(url);
+      else toast.error("Falha ao enviar foto dos insumos estocados");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleBackItem = async () => {
+    if (!currentItem || currentItemIndex === 0) return;
+    const prevIndex = Math.max(currentItemIndex - 1, 0);
+    const itemId = currentItem.id;
+    if (activeRunId) {
+      await checklistService.undoChecklistItemAnswer(activeRunId, itemId);
+    }
+    setAnswers(prev => {
+      const next = { ...prev };
+      delete next[itemId];
+      return next;
+    });
+    setCurrentItemIndex(prevIndex);
+    setActionLocked(false);
+  };
+
+  const confirmExit = () => setIsExitConfirmOpen(true);
+  const performExit = () => {
+    setIsExitConfirmOpen(false);
+    setActiveChecklistId(null);
+    setCompleted(false);
+    setActiveRunId(null);
+    setActionLocked(false);
+    localStorage.removeItem("checklist-progress");
+  };
+  const cancelExit = () => setIsExitConfirmOpen(false);
+
   const handleBack = () => {
     if (completed) {
       setActiveChecklistId(null);
       setCompleted(false);
+      setActiveRunId(null);
+      setActionLocked(false);
+      localStorage.removeItem("checklist-progress");
     } else {
       if (confirm("Sair do checklist? O progresso não salvo será perdido.")) {
         setActiveChecklistId(null);
+        setActiveRunId(null);
+        setActionLocked(false);
+        localStorage.removeItem("checklist-progress");
       }
     }
   };
@@ -240,7 +380,7 @@ const Checklists = () => {
         {/* Header Fixo */}
         <div className="sticky top-0 z-50 bg-background border-b safe-area-top">
           <div className="flex items-center justify-between p-4">
-            <Button variant="ghost" size="icon" onClick={handleBack}>
+            <Button variant="ghost" size="icon" onClick={confirmExit}>
               <ChevronLeft className="w-6 h-6" />
             </Button>
             <div className="text-center">
@@ -256,7 +396,7 @@ const Checklists = () => {
         <div className="flex-1 flex flex-col p-6 max-w-md mx-auto w-full animate-fade-in">
           <div className="flex-1 flex flex-col justify-center space-y-8">
             {/* Item Counter */}
-            <div className="text-xs font-bold text-muted-foreground uppercase tracking-widest text-center">
+            <div ref={itemTopRef} className="text-xs font-bold text-muted-foreground uppercase tracking-widest text-center">
               Item {currentItemIndex + 1} de {items.length}
             </div>
 
@@ -286,27 +426,28 @@ const Checklists = () => {
                   size="lg" 
                   className="w-full h-16 text-lg gap-2" 
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
+                  disabled={uploading || actionLocked}
                 >
                   {uploading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Camera className="w-6 h-6" />}
                   Tirar Foto Obrigatória
                 </Button>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
-                  <Button variant="outline" size="lg" className="h-14" onClick={() => fileInputRef.current?.click()}>
+                  <Button variant="outline" size="lg" className="h-14" onClick={() => fileInputRef.current?.click()} disabled={uploading || actionLocked}>
                     Refazer Foto
                   </Button>
-                  <Button size="lg" className="h-14" onClick={() => handleAnswer(answers[currentItem.id])}>
+                  <Button size="lg" className="h-14" onClick={() => handleAnswer(answers[currentItem.id])} disabled={uploading || actionLocked}>
                     Confirmar <ArrowRight className="ml-2 w-4 h-4" />
                   </Button>
                 </div>
               )
             ) : (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <Button 
                   variant="outline" 
                   className="h-20 text-lg border-2 hover:bg-destructive/10 hover:text-destructive hover:border-destructive flex flex-col gap-1"
                   onClick={handleNokClick}
+                  disabled={actionLocked}
                 >
                   <XCircle className="w-8 h-8 mb-1" />
                   Não OK
@@ -315,9 +456,20 @@ const Checklists = () => {
                 <Button 
                   className="h-20 text-lg bg-success hover:bg-success/90 text-white flex flex-col gap-1"
                   onClick={() => handleAnswer({ status: 'ok' })}
+                  disabled={actionLocked}
                 >
                   <CheckCircle2 className="w-8 h-8 mb-1" />
                   Conforme
+                </Button>
+
+                <Button 
+                  variant="secondary"
+                  className="h-20 text-lg border-2 flex flex-col gap-1"
+                  onClick={handleBackItem}
+                  disabled={actionLocked || currentItemIndex === 0}
+                >
+                  <ChevronLeft className="w-8 h-8 mb-1" />
+                  Voltar Item
                 </Button>
               </div>
             )}
@@ -410,7 +562,7 @@ const Checklists = () => {
                       variant="outline" 
                       className="w-full border-dashed border-2 h-12 gap-2"
                       onClick={() => nokFileInputRef.current?.click()}
-                      disabled={uploading}
+                      disabled={uploading || actionLocked}
                     >
                       {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
                       Adicionar Foto
@@ -423,12 +575,55 @@ const Checklists = () => {
                   size="lg" 
                   className="w-full bg-destructive hover:bg-destructive/90 text-white"
                   onClick={confirmNok}
+                  disabled={actionLocked}
                 >
                   Confirmar Falha
                 </Button>
                 <Button variant="outline" onClick={() => setIsNokDrawerOpen(false)}>
                   Cancelar
                 </Button>
+              </DrawerFooter>
+            </div>
+          </DrawerContent>
+        </Drawer>
+
+        {/* Exit Confirm Drawer */}
+        <Drawer open={isExitConfirmOpen} onOpenChange={setIsExitConfirmOpen}>
+          <DrawerContent>
+            <div className="mx-auto w-full max-w-sm p-4">
+              <DrawerHeader>
+                <DrawerTitle>Sair do checklist?</DrawerTitle>
+              </DrawerHeader>
+              <p className="text-sm text-muted-foreground mb-4">
+                O progresso não salvo será perdido.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <Button variant="outline" onClick={cancelExit}>Continuar</Button>
+                <Button variant="destructive" onClick={performExit}>Sair</Button>
+              </div>
+            </div>
+          </DrawerContent>
+        </Drawer>
+
+        {/* Final Required Photos Drawer */}
+        <Drawer open={isFinalDrawerOpen} onOpenChange={setIsFinalDrawerOpen}>
+          <DrawerContent>
+            <div className="mx-auto w-full max-w-sm p-4 space-y-4">
+              <DrawerHeader>
+                <DrawerTitle>Fotos obrigatórias de finalização</DrawerTitle>
+              </DrawerHeader>
+              <div className="space-y-2">
+                <Label>Praça montada</Label>
+                <input type="file" accept="image/*" onChange={handleFinalSetupUpload} />
+                {finalSetupPhoto && <img src={finalSetupPhoto} className="w-full rounded-md border" alt="Praça montada" />}
+              </div>
+              <div className="space-y-2">
+                <Label>Insumos estocados</Label>
+                <input type="file" accept="image/*" onChange={handleFinalStockUpload} />
+                {finalStockPhoto && <img src={finalStockPhoto} className="w-full rounded-md border" alt="Insumos estocados" />}
+              </div>
+              <DrawerFooter>
+                <Button onClick={finishChecklist} disabled={uploading}>Concluir</Button>
               </DrawerFooter>
             </div>
           </DrawerContent>
@@ -475,7 +670,11 @@ const Checklists = () => {
             </span>
           </div>
           
-          {mockChecklists.length === 0 ? (
+          {loading ? (
+            <div className="flex items-center justify-center py-6 text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin" />
+            </div>
+          ) : checklists.length === 0 ? (
             <EmptyState
               icon={ClipboardCheck}
               title="Sem checklists"
@@ -483,10 +682,20 @@ const Checklists = () => {
             />
           ) : (
             <div className="space-y-3">
-              {mockChecklists.map((checklist) => {
+              {checklists.map((checklist) => {
                 const Icon = typeIcons[checklist.type];
                 const isComplete = checklist.status === "completed";
-                const isLate = false; // Logic to check time
+                const isInProgress = checklist.status === "in_progress";
+                const statusLabel = isComplete
+                  ? "Concluído"
+                  : isInProgress
+                    ? "Em andamento"
+                    : "Pendente";
+                const statusClassName = isComplete
+                  ? "bg-success/10 text-success"
+                  : isInProgress
+                    ? "bg-warning/10 text-warning"
+                    : "bg-muted text-muted-foreground";
 
                 return (
                   <div
@@ -507,7 +716,9 @@ const Checklists = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                          <span className="font-bold text-lg">{checklist.name}</span>
-                         {isComplete && <CheckCircle2 className="w-5 h-5 text-success" />}
+                         <span className={cn("text-xs font-bold px-2 py-1 rounded", statusClassName)}>
+                           {statusLabel}
+                         </span>
                       </div>
                       
                       <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
@@ -545,8 +756,5 @@ const Checklists = () => {
     </AppLayout>
   );
 };
-
-// Helper for ChevronRight which was missing in imports
-import { ChevronRight, Clock } from "lucide-react";
 
 export default Checklists;
