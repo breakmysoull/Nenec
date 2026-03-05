@@ -257,8 +257,44 @@ export const checklistService = {
             type: mapItemType(it.item_type as ChecklistItemType),
             isRequired: it.required ?? true,
           }));
-        itemsByChecklist.set(cid, arr);
+          itemsByChecklist.set(cid, arr);
         });
+
+        // Verificação final e Auto-Seed se ainda houver checklists vazios
+        const stillEmptyIds = (checklists || [])
+          .map((c) => c.id)
+          .filter((id) => (itemsByChecklist.get(id) || []).length === 0);
+
+        if (stillEmptyIds.length > 0) {
+          console.log("Checklists ainda vazios após fallback. Tentando auto-seed:", stillEmptyIds);
+          // Tenta rodar o seed para garantir que os itens existam
+          await checklistService.seedOperationalChecklists(unit.network_id);
+          
+          // Tenta buscar novamente os itens para os checklists que estavam vazios
+          const finalFallback = await Promise.all(
+            stillEmptyIds.map((id) =>
+              supabase
+                .from("checklist_items")
+                .select("id, title, item_type, required, order_index, checklist_id")
+                .eq("checklist_id", id)
+                .order("order_index", { ascending: true })
+            )
+          );
+          
+          finalFallback.forEach((res, idx) => {
+            const cid = stillEmptyIds[idx];
+            const arr = (res.data || []).map((it) => ({
+              id: it.id,
+              title: it.title,
+              type: mapItemType(it.item_type as ChecklistItemType),
+              isRequired: it.required ?? true,
+            }));
+            if (arr.length > 0) {
+              itemsByChecklist.set(cid, arr);
+              console.log(`Itens recuperados após seed para checklist ${cid}: ${arr.length}`);
+            }
+          });
+        }
       }
 
       return (checklists || []).map((checklist) => {
