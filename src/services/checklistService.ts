@@ -661,7 +661,7 @@ export const checklistService = {
 
   updateChecklistItem: async (itemId: string, updates: { title?: string; is_required?: boolean; order_index?: number }) => {
     try {
-      const payload: any = {};
+      const payload: { title?: string; required?: boolean; order_index?: number } = {};
       if (updates.title !== undefined) payload.title = updates.title;
       if (updates.is_required !== undefined) payload.required = updates.is_required;
       if (updates.order_index !== undefined) payload.order_index = updates.order_index;
