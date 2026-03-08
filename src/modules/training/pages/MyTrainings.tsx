@@ -11,8 +11,10 @@ import { Input } from "@/components/ui/input";
 import { 
   GraduationCap,
   RefreshCcw,
-  UserPlus
+  UserPlus,
+  PlayCircle
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 export const MyTrainings = () => {
   const {
@@ -44,7 +46,6 @@ export const MyTrainings = () => {
   const [newDishVideoUrl, setNewDishVideoUrl] = useState("");
   const [assignTrainingId, setAssignTrainingId] = useState<number | null>(null);
   const [assignDishId, setAssignDishId] = useState<number | null>(null);
-  const [startedDishesByTraining, setStartedDishesByTraining] = useState<Record<number, number[]>>({});
   const [localError, setLocalError] = useState<string | null>(null);
   const [dishError, setDishError] = useState<string | null>(null);
   const [assignDishError, setAssignDishError] = useState<string | null>(null);
@@ -53,6 +54,8 @@ export const MyTrainings = () => {
   const [editDishDescription, setEditDishDescription] = useState("");
   const [editDishVideoUrl, setEditDishVideoUrl] = useState("");
   const [editDishError, setEditDishError] = useState<string | null>(null);
+
+  const navigate = useNavigate();
 
   const operators = useMemo(
     () => employees.filter((employee) => employee.role === "OPERATOR"),
@@ -105,7 +108,6 @@ export const MyTrainings = () => {
   const handleReload = async () => {
     setSelectedOperatorId(null);
     setManagerSelectedOperatorId(null);
-    setStartedDishesByTraining({});
     await reloadTrainings();
   };
 
@@ -155,21 +157,6 @@ export const MyTrainings = () => {
     setAssignDishError(null);
   };
 
-  const handleDishStart = (trainingId: number, dishId: number) => {
-    setStartedDishesByTraining((prev) => {
-      const existing = new Set(prev[trainingId] ?? []);
-      existing.add(dishId);
-      return { ...prev, [trainingId]: Array.from(existing) };
-    });
-    if (effectiveOperatorId) {
-      startTraining(effectiveOperatorId, trainingId);
-    }
-  };
-
-  const handleDishCompleted = (trainingId: number, dishId: number) => {
-    updateVideoProgress(trainingId, dishId, 100);
-  };
-
   const handleStartEditDish = (dish: DishMock) => {
     setEditingDishId(dish.id);
     setEditDishTitle(dish.title);
@@ -197,207 +184,6 @@ export const MyTrainings = () => {
     }
     updateDish(editingDishId, title, description, videoUrl);
     handleCancelEditDish();
-  };
-
-  type YouTubePlayerInstance = {
-    playVideo: () => void;
-    destroy: () => void;
-    mute?: () => void;
-  };
-
-  type YouTubePlayerApi = {
-    Player: new (
-      elementId: string,
-      options: {
-        videoId: string;
-        playerVars: Record<string, string | number>;
-        events: {
-          onReady: () => void;
-          onStateChange: (event: { data: number }) => void;
-        };
-      },
-    ) => YouTubePlayerInstance;
-  };
-
-  const DishVideo = ({
-    trainingId,
-    dish,
-    onCompleted,
-    completed,
-    progress,
-    started,
-    onStart,
-  }: {
-    trainingId: number;
-    dish: DishMock;
-    onCompleted: () => void;
-    completed: boolean;
-    progress: number;
-    started: boolean;
-    onStart: () => void;
-  }) => {
-    const videoRef = useRef<HTMLVideoElement | null>(null);
-    const playerRef = useRef<YouTubePlayerInstance | null>(null);
-    const [playerReady, setPlayerReady] = useState(false);
-    const [autoPlayRequested, setAutoPlayRequested] = useState(false);
-    const [isExpanded, setIsExpanded] = useState(false);
-    const autoPlayRequestedRef = useRef(false);
-    const youtubeId = extractYouTubeId(dish.videoUrl);
-    const playerId = `yt-player-${trainingId}-${dish.id}`;
-
-    useEffect(() => {
-      autoPlayRequestedRef.current = autoPlayRequested;
-    }, [autoPlayRequested]);
-
-    useEffect(() => {
-      if (!youtubeId || !started || !isExpanded) return undefined;
-      setPlayerReady(false);
-
-      const initializePlayer = () => {
-        const yt = (window as Window & { YT?: YouTubePlayerApi }).YT;
-        if (!yt) return;
-        playerRef.current = new yt.Player(playerId, {
-          videoId: youtubeId,
-          playerVars: {
-            controls: 0,
-            disablekb: 1,
-            modestbranding: 1,
-            rel: 0,
-            fs: 0,
-            playsinline: 1,
-            mute: 1,
-          },
-          events: {
-            onReady: () => {
-              setPlayerReady(true);
-              playerRef.current?.mute?.();
-              if (autoPlayRequestedRef.current) {
-                playerRef.current?.playVideo();
-                autoPlayRequestedRef.current = false;
-                setAutoPlayRequested(false);
-              }
-            },
-            onStateChange: (event) => {
-              if (event.data === 0) {
-                onCompleted();
-              }
-            },
-          },
-        });
-      };
-
-      const existingScript = document.querySelector<HTMLScriptElement>(
-        'script[src="https://www.youtube.com/iframe_api"]',
-      );
-
-      if ((window as Window & { YT?: YouTubePlayerApi }).YT?.Player) {
-        initializePlayer();
-      } else if (!existingScript) {
-        const script = document.createElement("script");
-        script.src = "https://www.youtube.com/iframe_api";
-        document.body.appendChild(script);
-        (window as Window & { onYouTubeIframeAPIReady?: () => void }).onYouTubeIframeAPIReady = () => {
-          initializePlayer();
-        };
-      } else {
-        (window as Window & { onYouTubeIframeAPIReady?: () => void }).onYouTubeIframeAPIReady = () => {
-          initializePlayer();
-        };
-      }
-
-      return () => {
-        playerRef.current?.destroy();
-      };
-    }, [playerId, youtubeId, onCompleted, started, isExpanded]);
-
-    useEffect(() => {
-      if (started && !isExpanded) {
-        setIsExpanded(true);
-      }
-    }, [started, isExpanded]);
-
-    useEffect(() => {
-      if (!started || youtubeId || !autoPlayRequested) return;
-      if (videoRef.current) {
-        videoRef.current.muted = true;
-        videoRef.current.play();
-        setAutoPlayRequested(false);
-      }
-    }, [started, youtubeId, autoPlayRequested]);
-
-    const handlePrimaryAction = () => {
-      if (!started) {
-        onStart();
-        setIsExpanded(true);
-        setAutoPlayRequested(true);
-        return;
-      }
-      if (youtubeId) {
-        playerRef.current?.playVideo();
-        return;
-      }
-      if (videoRef.current) {
-        videoRef.current.muted = true;
-      }
-      videoRef.current?.play();
-    };
-
-    return (
-      <div className="rounded-lg border p-3 space-y-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="space-y-1">
-            <div className="font-medium text-sm">{dish.title}</div>
-            <div className="text-xs text-muted-foreground">{dish.description}</div>
-          </div>
-          <Button size="sm" variant="ghost" onClick={() => setIsExpanded((prev) => !prev)}>
-            {isExpanded ? "Recolher" : "Detalhes"}
-          </Button>
-        </div>
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>
-              {completed ? "Vídeo assistido" : started ? "Em andamento" : "Não iniciado"}
-            </span>
-            <span>{progress}%</span>
-          </div>
-          <div className="h-1.5 w-full rounded-full bg-muted">
-            <div
-              className="h-1.5 rounded-full bg-primary transition-all"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <div className="flex items-center">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handlePrimaryAction}
-              disabled={started && youtubeId ? !playerReady : false}
-            >
-              {started ? "Reproduzir" : "Começar Treinamento"}
-            </Button>
-          </div>
-        </div>
-        {started && isExpanded && (
-          <div className="aspect-video w-full overflow-hidden rounded-lg border bg-muted">
-            {youtubeId ? (
-              <div className="h-full w-full" id={playerId} />
-            ) : (
-              <video
-                ref={videoRef}
-                className="h-full w-full"
-                src={resolveVideoUrl(dish.videoUrl)}
-                controls={false}
-                muted
-                playsInline
-                onEnded={onCompleted}
-                controlsList="nodownload noplaybackrate noremoteplayback"
-                disablePictureInPicture
-              />
-            )}
-          </div>
-        )}
-      </div>
-    );
   };
 
   const StatusLine = ({ status }: { status: TrainingStatus }) => (
@@ -528,44 +314,40 @@ export const MyTrainings = () => {
                         )}
                         {training.dishes.length === 0 ? (
                           <div className="rounded-lg border border-dashed border-muted-foreground/30 p-3 text-sm text-muted-foreground">
-                            Nenhum prato atribuído.
+                            Nenhum conteúdo atribuído.
                           </div>
                         ) : (
-                        <div className="space-y-2">
+                          <div className="space-y-2">
                             {training.dishes
                               .map((dishId) => dishesById.get(dishId))
                               .filter((dish) => dish !== undefined)
                               .map((dish) =>
                                 dish ? (
-                                  <DishVideo
-                                    key={dish.id}
-                                    trainingId={training.id}
-                                    dish={dish}
-                                    completed={(trainingProgress[dish.id] ?? 0) >= 100}
-                                    progress={trainingProgress[dish.id] ?? 0}
-                                    started={(startedDishesByTraining[training.id] ?? []).includes(dish.id)}
-                                    onStart={() => handleDishStart(training.id, dish.id)}
-                                    onCompleted={() => handleDishCompleted(training.id, dish.id)}
-                                  />
+                                  <div key={dish.id} className="flex items-center justify-between rounded-lg border p-3 bg-muted/30">
+                                    <div className="space-y-1">
+                                      <div className="font-medium text-sm">{dish.title}</div>
+                                      <div className="text-xs text-muted-foreground">{dish.description}</div>
+                                    </div>
+                                    {(trainingProgress[dish.id] ?? 0) >= 100 && (
+                                      <StatusBadge status="concluido" />
+                                    )}
+                                  </div>
                                 ) : null,
                               )}
                           </div>
                         )}
                       </div>
+                      
+                      {/* Navigating to ReelsPlayer instead of old DishVideo inline logic */}
                       {training.status !== "concluido" && hasDishes && (
-                        <div className="space-y-1">
+                        <div className="pt-2">
                           <Button
-                            className="w-full"
-                            onClick={() => handleMarkCompleted(training.id)}
-                            disabled={!canComplete}
+                            className="w-full font-bold h-12 gap-2"
+                            onClick={() => navigate(`/training/${training.id}`)}
                           >
-                            Concluir Treinamento
+                            <PlayCircle className="w-5 h-5" />
+                            Começar Treinamento Interativo
                           </Button>
-                          {!canComplete && training.dishes.length > 0 && (
-                            <div className="text-xs text-muted-foreground">
-                              Assista todos os vídeos para liberar a conclusão.
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>

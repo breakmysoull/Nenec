@@ -27,6 +27,9 @@ export const ProtectedRoute = ({ children, requiredPermission }: ProtectedRouteP
   }
 
   const isAdminBase = baseRole === "admin" || baseRole === "super_admin";
+  
+  // Apenas redireciona se adminView estiver explicitamente indefinido, o que não deveria acontecer.
+  // A verificação anterior estava muito restritiva, impedindo acesso quando adminView era 'MANAGER'
   if (isAdminBase && !adminView) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">

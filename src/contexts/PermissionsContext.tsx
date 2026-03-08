@@ -245,7 +245,8 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
     if (!baseRole) return;
     if (baseRole === "admin" || baseRole === "super_admin") {
       if (!adminView) {
-        setAdminView("OPERATOR");
+        // Default to MANAGER view for admins
+        setAdminView("MANAGER");
       }
       return;
     }

@@ -186,7 +186,7 @@ export type Database = {
           created_at: string | null
           description: string | null
           id: string
-          is_required: boolean | null
+          required: boolean | null
           item_type: Database["public"]["Enums"]["checklist_item_type"] | null
           order_index: number | null
           title: string
@@ -196,7 +196,7 @@ export type Database = {
           created_at?: string | null
           description?: string | null
           id?: string
-          is_required?: boolean | null
+          required?: boolean | null
           item_type?: Database["public"]["Enums"]["checklist_item_type"] | null
           order_index?: number | null
           title: string
@@ -206,7 +206,7 @@ export type Database = {
           created_at?: string | null
           description?: string | null
           id?: string
-          is_required?: boolean | null
+          required?: boolean | null
           item_type?: Database["public"]["Enums"]["checklist_item_type"] | null
           order_index?: number | null
           title?: string

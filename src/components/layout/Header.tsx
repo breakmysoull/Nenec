@@ -30,7 +30,7 @@ interface HeaderProps {
   showBackButton?: boolean;
 }
 
-export const Header = ({ title = "Codex", onMenuClick, showBackButton }: HeaderProps) => {
+export const Header = ({ title = "Projeto1", onMenuClick, showBackButton }: HeaderProps) => {
   const { user, signOut } = useAuth();
   const { role, baseRole, adminView, setAdminView, isSuperAdmin, units, activeUnitId, setActiveUnitId } = usePermissions();
   const { critical, count: alertCount } = useStockAlerts();
@@ -115,20 +115,17 @@ export const Header = ({ title = "Codex", onMenuClick, showBackButton }: HeaderP
                     : "border-dashed"
               }`}
               onClick={() => {
-                if (adminView === "MANAGER") {
-                  setAdminView("OPERATOR");
-                  return;
-                }
-                if (adminView === "OPERATOR") {
-                  setAdminView("MANAGER");
-                  return;
-                }
-                setAdminView("OPERATOR");
+                // Alterna entre MANAGER e OPERATOR
+                const newView = adminView === "MANAGER" ? "OPERATOR" : "MANAGER";
+                setAdminView(newView);
+                
+                // Se mudou para MANAGER, pode ser interessante redirecionar para uma dashboard administrativa
+                // ou manter na página atual se ela suportar visualização administrativa
               }}
               title="Trocar visão"
               aria-label="Trocar visão"
             >
-              {adminView === "MANAGER" ? "MG" : adminView === "OPERATOR" ? "OP" : "?"}
+              {adminView === "MANAGER" ? "MG" : "OP"}
             </Button>
           )}
           <Popover open={alertsOpen} onOpenChange={setAlertsOpen}>
@@ -239,6 +236,13 @@ export const Header = ({ title = "Codex", onMenuClick, showBackButton }: HeaderP
                 <User className="w-4 h-4 mr-2" />
                 Perfil
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {isAdminBase && (
+                <DropdownMenuItem onClick={() => navigate("/checklists/manage")}>
+                  <Shield className="w-4 h-4 mr-2" />
+                  Gerenciar Checklists
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={signOut} className="text-destructive">
                 Sair

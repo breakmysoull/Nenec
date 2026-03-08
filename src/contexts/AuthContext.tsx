@@ -47,12 +47,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     supabase.auth.getSession()
       .then(({ data: { session }, error }) => {
         if (error) {
+          console.error("AuthContext: Error getting session:", error);
+          if (error.message.includes("Refresh Token") || error.message.includes("refresh_token")) {
+            console.warn("AuthContext: Invalid refresh token detected. Forcing sign out.");
+            handleSignOut();
+            return;
+          }
           setAuthError(error);
         }
         setUser(session?.user ?? null);
         setAuthLoading(false);
       })
       .catch((error: Error) => {
+        console.error("AuthContext: Unexpected error getting session:", error);
         setAuthError(error);
         setAuthLoading(false);
       });

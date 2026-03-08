@@ -19,11 +19,12 @@ import Purchases from "./pages/purchases/PurchasesList";
 import PurchaseDetail from "./pages/purchases/PurchaseDetail";
 import Checklists from "./pages/Checklists";
 import ChecklistReview from "./pages/ChecklistReview";
+import ChecklistManager from "./pages/ChecklistManager";
 // import Training from "./pages/Training";
-// import TrainingPlayer from "./pages/TrainingPlayer";
 import { MyTrainings } from "./modules/training/pages/MyTrainings";
-import { TrainingDetail } from "./modules/training/pages/TrainingDetail";
-import { LessonPlayer } from "./modules/training/pages/LessonPlayer";
+// import { TrainingDetail } from "./modules/training/pages/TrainingDetail";
+// import { LessonPlayer } from "./modules/training/pages/LessonPlayer";
+import { ReelsPlayer } from "./modules/training/pages/ReelsPlayer";
 import Products from "./pages/Products";
 import Units from "./pages/Units";
 import Users from "./pages/Users";
@@ -39,7 +40,12 @@ const App = () => (
           <TooltipProvider>
             <Toaster />
             <Sonner />
-            <BrowserRouter>
+            <BrowserRouter
+              future={{
+                v7_startTransition: true,
+                v7_relativeSplatPath: true,
+              }}
+            >
               <Routes>
             {/* Public Routes */}
             <Route path="/login" element={<Login />} />
@@ -103,6 +109,14 @@ const App = () => (
               }
             />
             <Route
+              path="/checklists/manage"
+              element={
+                <ProtectedRoute requiredPermission="manage_checklists">
+                  <ChecklistManager />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/training"
               element={
                 <ProtectedRoute requiredPermission="view_training">
@@ -111,13 +125,15 @@ const App = () => (
               }
             />
             <Route
-              path="/training/:id"
+              path="/training/:trainingId"
               element={
                 <ProtectedRoute requiredPermission="view_training">
-                  <TrainingDetail />
+                  <ReelsPlayer />
                 </ProtectedRoute>
               }
             />
+            {/* Keeping old routes commented/redirected if needed */}
+            {/*
             <Route
               path="/training/:trainingId/lesson/:lessonId"
               element={
@@ -126,6 +142,7 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+            */}
             <Route
               path="/products"
               element={

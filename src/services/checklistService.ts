@@ -113,7 +113,7 @@ export const checklistService = {
       }
 
       console.log("NETWORK ID USADO NA QUERY:", unit.network_id)
-      const { data: checklists, error: checklistsError } = await supabase
+      const { data: checklistsData, error: checklistsError } = await supabase
         .from("checklists")
         .select("id, name, checklist_type, is_active")
         .eq("network_id", unit.network_id)
@@ -124,13 +124,47 @@ export const checklistService = {
         return [];
       }
 
-      console.log("CHECKLISTS RAW:", checklists)
-      if (!checklists || checklists.length === 0) {
+      let checklists = checklistsData || [];
+
+      // Ordenação customizada: BOWL primeiro, depois os outros por nome
+      checklists.sort((a, b) => {
+        const aIsBowl = a.name.includes("BOWL");
+        const bIsBowl = b.name.includes("BOWL");
+        if (aIsBowl && !bIsBowl) return -1;
+        if (!aIsBowl && bIsBowl) return 1;
+        return a.name.localeCompare(b.name);
+      });
+
+      console.log("CHECKLISTS RAW (Sorted):", checklists)
+      if (checklists.length > 0) {
+        console.log("Nomes dos checklists encontrados:", checklists.map(c => c.name));
+      }
+      
+      const hasBowl = checklists.some(c => c.name.includes("BOWL"));
+      console.log("TEM BOWL NA LISTA?", hasBowl);
+
+      if (!hasBowl) {
+        console.log("BOWL não encontrado! Tentando forçar o seed...");
+        await checklistService.seedOperationalChecklists(unit.network_id);
+        // Recarrega checklists após o seed
+        const { data: recheck, error: recheckErr } = await supabase
+          .from("checklists")
+          .select("id, name, checklist_type, is_active")
+          .eq("network_id", unit.network_id)
+          .eq("is_active", true);
+        if (!recheckErr && recheck) {
+          console.log("Checklists após seed forçado:", recheck.map(c => c.name));
+          // Atualiza a variável local para o restante da função
+          checklists = recheck;
+        }
+      }
+
+      if (checklists.length === 0) {
         const { data: all } = await supabase.from("checklists").select("*")
         console.log("CHECKLISTS SEM FILTRO:", all)
       }
 
-      const checklistIds = (checklists || []).map((checklist) => checklist.id);
+      const checklistIds = checklists.map((checklist) => checklist.id);
 
       if (checklistIds.length === 0) {
         return [];
@@ -551,6 +585,7 @@ export const checklistService = {
   },
 
   upsertChecklist: async (networkId: string, name: string, type: ChecklistType, description?: string) => {
+    console.log(`Upserting checklist: ${name} for network: ${networkId}`);
     const { data: existing, error: existingError } = await supabase
       .from("checklists")
       .select("id")
@@ -558,11 +593,18 @@ export const checklistService = {
       .eq("name", name)
       .limit(1)
     if (existingError) {
+      console.error(`Erro ao buscar checklist existente (${name}):`, existingError);
       return null
     }
     if (existing && existing.length > 0) {
-      return existing[0].id as string
+      const id = existing[0].id;
+      console.log(`Checklist existente encontrado: ${id} (${name}). Garantindo que está ativo...`);
+      // Garante que o checklist existente está ativo
+      const { error: upErr } = await supabase.from("checklists").update({ is_active: true }).eq("id", id);
+      if (upErr) console.error(`Erro ao ativar checklist (${name}):`, upErr);
+      return id as string
     }
+    console.log(`Criando novo checklist: ${name}`);
     const { data: created, error: createError } = await supabase
       .from("checklists")
       .insert({
@@ -574,17 +616,21 @@ export const checklistService = {
       .select("id")
       .single()
     if (createError) {
+      console.error(`Erro ao criar novo checklist (${name}):`, createError);
       return null
     }
+    console.log(`Checklist criado com sucesso: ${created?.id} (${name})`);
     return created?.id || null
   },
 
   upsertChecklistItems: async (checklistId: string, items: { title: string; item_type?: ChecklistItemType; is_required?: boolean }[]) => {
+    console.log(`Upserting ${items.length} items for checklist: ${checklistId}`);
     const { data: existing, error: existingError } = await supabase
       .from("checklist_items")
       .select("id, title")
       .eq("checklist_id", checklistId)
     if (existingError) {
+      console.error(`Erro ao buscar itens existentes para checklist ${checklistId}:`, existingError);
       return false
     }
     const existingTitles = new Set((existing || []).map((i) => i.title.trim().toLowerCase()))
@@ -595,13 +641,92 @@ export const checklistService = {
         item_type: it.item_type || ("check" as ChecklistItemType),
         order_index: idx + 1,
         required: it.is_required ?? true,
-        is_required: it.is_required ?? true,
       }))
       .filter((p) => !existingTitles.has(p.title.trim().toLowerCase()))
-    if (payload.length === 0) return true
+    
+    if (payload.length === 0) {
+      console.log(`Nenhum item novo para inserir no checklist ${checklistId}`);
+      return true
+    }
+    
+    console.log(`Inserindo ${payload.length} novos itens no checklist ${checklistId}`);
     const { error } = await supabase.from("checklist_items").insert(payload)
-    if (error) return false
+    if (error) {
+      console.error(`Erro ao inserir itens no checklist ${checklistId}:`, error);
+      return false
+    }
+    console.log(`Itens inseridos com sucesso no checklist ${checklistId}`);
     return true
+  },
+
+  updateChecklistItem: async (itemId: string, updates: { title?: string; is_required?: boolean; order_index?: number }) => {
+    try {
+      const payload: any = {};
+      if (updates.title !== undefined) payload.title = updates.title;
+      if (updates.is_required !== undefined) payload.required = updates.is_required;
+      if (updates.order_index !== undefined) payload.order_index = updates.order_index;
+
+      const { error } = await supabase
+        .from("checklist_items")
+        .update(payload)
+        .eq("id", itemId);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error("Erro ao atualizar item do checklist:", error);
+      return false;
+    }
+  },
+
+  addChecklistItem: async (checklistId: string, item: { title: string; is_required?: boolean; order_index: number }) => {
+    try {
+      const { error } = await supabase
+        .from("checklist_items")
+        .insert({
+          checklist_id: checklistId,
+          title: item.title,
+          required: item.is_required ?? true,
+          order_index: item.order_index,
+          item_type: 'check'
+        });
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error("Erro ao adicionar item ao checklist:", error);
+      return false;
+    }
+  },
+
+  deleteChecklistItem: async (itemId: string) => {
+    try {
+      const { error } = await supabase
+        .from("checklist_items")
+        .delete()
+        .eq("id", itemId);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error("Erro ao excluir item do checklist:", error);
+      return false;
+    }
+  },
+
+  updateChecklist: async (checklistId: string, updates: { name?: string; is_active?: boolean }) => {
+    try {
+      const { error } = await supabase
+        .from("checklists")
+        .update(updates)
+        .eq("id", checklistId);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error("Erro ao atualizar checklist:", error);
+      return false;
+    }
   },
 
   seedOperationalChecklists: async (networkId: string) => {
@@ -668,46 +793,46 @@ export const checklistService = {
           "Montar lixeira específica",
           "Limpar piso da área Bowl",
           "Limpar superfícies de trabalho",
-          "Verificar temperatura de mantenedores",
-          "Verificar base: Mix arroz 7 grãos com cogumelo",
-          "Verificar base: Mix arroz 7 grãos",
-          "Verificar base: Arroz de brócolis",
-          "Verificar base: Feijão carioca",
-          "Verificar base: Feijão fradinho",
-          "Verificar base: Purê de abóbora",
-          "Verificar vegetal: Vinagrete",
-          "Verificar vegetal: Brócolis",
-          "Verificar vegetal: Couve flor",
-          "Verificar vegetal: Batata doce",
-          "Verificar vegetal: Abóbora",
-          "Verificar vegetal: Abobrinha",
-          "Verificar vegetal: Tomate cereja e milho",
-          "Verificar vegetal: Couve",
-          "Verificar vegetal: Rúcula",
-          "Verificar creme/queijo: Creme de milho",
-          "Verificar creme/queijo: Creme de queijo",
-          "Verificar creme/queijo: Queijo coalho",
-          "Verificar complemento: Bacon salgado",
-          "Verificar complemento: Farofa de pão",
-          "Verificar complemento: Farofa de banana",
-          "Verificar complemento: Gergelim torrado",
-          "Verificar complemento: Cebola crocante",
-          "Verificar proteína: Carne da vovó",
-          "Verificar proteína: Picadinho vegano",
-          "Verificar proteína: Carne picadinho",
-          "Verificar proteína: Salmão grelhado",
-          "Verificar proteína: Frango grelhado",
-          "Verificar molho: Molho Teriyaki",
-          "Verificar molho: Molho da Vovó",
-          "Verificar molho: Molho Cítrico",
-          "Verificar molho: Molho Pesto",
-          "Verificar molho: Molho Picadinho Vegano",
-          "Item de inverno (se aplicável): Caldo de mandioquinha",
-          "Item de inverno (se aplicável): Canja",
-          "Item de inverno (se aplicável): Quinoa crocante",
-          "Item de inverno (se aplicável): Castanha caramelizada",
-          "Conferir validades",
-          "Solicitar reposição se necessário",
+          "Temperatura de mantenedores",
+          "Mix arroz 7 grãos com cogumelo",
+          "Mix arroz 7 grãos",
+          "Arroz de brócolis",
+          "Feijão carioca",
+          "Feijão fradinho",
+          "Purê de abóbora",
+          "Vinagrete",
+          "Brócolis",
+          "Couve flor",
+          "Batata doce",
+          "Abóbora",
+          "Abobrinha",
+          "Tomate cereja e milho",
+          "Couve",
+          "Rúcula",
+          "Creme de milho",
+          "Creme de queijo",
+          "Queijo coalho",
+          "Bacon salgado",
+          "Farofa de pão",
+          "Farofa de banana",
+          "Gergelim torrado",
+          "Cebola crocante",
+          "Carne da vovó",
+          "Picadinho vegano",
+          "Carne picadinho",
+          "Salmão grelhado",
+          "Frango grelhado",
+          "Molho Teriyaki",
+          "Molho da Vovó",
+          "Molho Cítrico",
+          "Molho Pesto",
+          "Molho Picadinho Vegano",
+          "Caldo de mandioquinha",
+          "Canja",
+          "Quinoa crocante",
+          "Castanha caramelizada",
+          "Validades conferidas",
+          "Reposições solicitadas",
         ],
       },
       {

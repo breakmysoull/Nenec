@@ -14,6 +14,7 @@ export type Permission =
   | 'manage_orders'
   | 'manage_users'
   | 'manage_settings'
+  | 'manage_checklists'
   | 'create_order'
   | 'submit_order'
   | 'approve_order'
@@ -24,18 +25,18 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     'view_dashboard', 'view_stock', 'view_orders', 'view_checklists', 
     'view_checklist_review', 'view_training', 'view_products', 'view_units', 
     'view_users', 'manage_stock', 'manage_orders', 'manage_users', 'manage_settings',
-    'create_order', 'submit_order', 'approve_order', 'receive_order'
+    'manage_checklists', 'create_order', 'submit_order', 'approve_order', 'receive_order'
   ],
   admin: [
     'view_dashboard', 'view_stock', 'view_orders', 'view_checklists', 
     'view_checklist_review', 'view_training', 'view_products', 'view_units', 
     'view_users', 'manage_stock', 'manage_orders', 'manage_users', 'manage_settings',
-    'create_order', 'submit_order', 'approve_order', 'receive_order'
+    'manage_checklists', 'create_order', 'submit_order', 'approve_order', 'receive_order'
   ],
   manager: [
     'view_dashboard', 'view_stock', 'view_orders', 'view_checklists', 
     'view_checklist_review', 'view_training', 'manage_stock', 'manage_orders',
-    'create_order', 'submit_order', 'approve_order', 'receive_order'
+    'manage_checklists', 'create_order', 'submit_order', 'approve_order', 'receive_order'
   ],
   operator: [
     'view_dashboard', 'view_stock', 'view_checklists', 'view_training',
@@ -46,17 +47,17 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     'view_dashboard', 'view_stock', 'view_orders', 'view_checklists', 
     'view_checklist_review', 'view_training', 'view_products', 'view_units', 
     'view_users', 'manage_stock', 'manage_orders', 'manage_users', 'manage_settings',
-    'create_order', 'submit_order', 'approve_order', 'receive_order'
+    'manage_checklists', 'create_order', 'submit_order', 'approve_order', 'receive_order'
   ],
   gerente: [
     'view_dashboard', 'view_stock', 'view_orders', 'view_checklists', 
     'view_checklist_review', 'view_training', 'manage_stock', 'manage_orders',
-    'create_order', 'submit_order', 'approve_order', 'receive_order'
+    'manage_checklists', 'create_order', 'submit_order', 'approve_order', 'receive_order'
   ],
   lider_turno: [
     'view_dashboard', 'view_stock', 'view_orders', 'view_checklists', 
     'view_checklist_review', 'view_training', 'manage_stock', 'manage_orders',
-    'create_order', 'submit_order', 'approve_order', 'receive_order'
+    'manage_checklists', 'create_order', 'submit_order', 'approve_order', 'receive_order'
   ],
   operador: [
     'view_dashboard', 'view_stock', 'view_checklists', 'view_training',

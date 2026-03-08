@@ -16,7 +16,8 @@ import {
   ArrowRight,
   ThumbsUp,
   ChevronRight,
-  Clock
+  Clock,
+  Settings
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -29,6 +30,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { checklistService, TodayChecklist } from "@/services/checklistService";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/contexts/PermissionsContext";
+import { useNavigate } from "react-router-dom";
 
 type ChecklistAnswer = {
   status?: 'ok' | 'nok';
@@ -48,8 +50,11 @@ const typeIcons = {
 
 const Checklists = () => {
   const { user } = useAuth();
-  const { activeUnitId } = usePermissions();
+  const { activeUnitId, role } = usePermissions();
+  const navigate = useNavigate();
   const [checklists, setChecklists] = useState<TodayChecklist[]>([]);
+  
+  const isAdmin = role === 'gerente' || role === 'admin_rede';
   const [loading, setLoading] = useState(true);
   const [activeChecklistId, setActiveChecklistId] = useState<string | null>(null);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -656,6 +661,14 @@ const Checklists = () => {
       <PageHeader
         title="Checklists"
         subtitle="Verificações operacionais"
+        actions={
+          isAdmin && (
+            <Button variant="outline" size="sm" onClick={() => navigate("/checklists/manage")}>
+              <Settings className="w-4 h-4 mr-2" />
+              Gerenciar
+            </Button>
+          )
+        }
       />
 
       <div className="p-4 space-y-6">
