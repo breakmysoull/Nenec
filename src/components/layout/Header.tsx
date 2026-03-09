@@ -1,4 +1,4 @@
-import { Bell, Menu, User, Shield, Building2, ChevronDown, AlertTriangle, Package, Plus, ArrowLeft } from "lucide-react";
+import { Bell, Menu, User, Shield, Building2, ChevronDown, AlertTriangle, Package, Plus, ArrowLeft, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -241,6 +241,12 @@ export const Header = ({ title = "Projeto1", onMenuClick, showBackButton }: Head
                 <DropdownMenuItem onClick={() => navigate("/checklists/manage")}>
                   <Shield className="w-4 h-4 mr-2" />
                   Gerenciar Checklists
+                </DropdownMenuItem>
+              )}
+              {isAdminBase && (
+                <DropdownMenuItem onClick={() => navigate("/training/manage")}>
+                  <Video className="w-4 h-4 mr-2" />
+                  Gerenciar Treinamentos
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />

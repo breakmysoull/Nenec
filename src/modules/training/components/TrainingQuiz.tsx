@@ -16,7 +16,7 @@ export const TrainingQuiz = ({ steps, onSuccess }: TrainingQuizProps) => {
   // In a real app we would have a specific Quiz table, but since we are adapting:
   const questions = steps.map((step, index) => ({
     id: step.id,
-    question: `A afirmação a seguir sobre o treinamento é verdadeira ou falsa? \n\n"${step.title}"`,
+    question: `A afirmação a seguir sobre o treinamento é verdadeira ou falsa? \n\n"${step.description || (step as any).title || "Conteúdo da aula"}"`,
     options: [
       { id: 't', label: "Verdadeiro (Correto)" },
       { id: 'f', label: "Falso (Incorreto)" }

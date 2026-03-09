@@ -149,5 +149,57 @@ export const trainingService = {
     }).eq('user_id', userId).eq('training_id', trainingId);
     
     if (error) throw error;
+  },
+
+  // Admin / Manager Operations
+
+  createTraining: async (data: Partial<Training>): Promise<Training> => {
+    const { data: training, error } = await supabase
+      .from('trainings')
+      .insert(data)
+      .select()
+      .single();
+    if (error) throw error;
+    return training as unknown as Training;
+  },
+
+  updateTraining: async (id: string, data: Partial<Training>): Promise<Training> => {
+    const { data: training, error } = await supabase
+      .from('trainings')
+      .update(data)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return training as unknown as Training;
+  },
+
+  addVideo: async (trainingId: string, video: Partial<TrainingLesson>): Promise<TrainingLesson> => {
+    const { data: lesson, error } = await supabase
+      .from('training_videos')
+      .insert({ ...video, training_id: trainingId })
+      .select()
+      .single();
+    if (error) throw error;
+    return lesson as unknown as TrainingLesson;
+  },
+
+  updateVideo: async (id: string, video: Partial<TrainingLesson>): Promise<TrainingLesson> => {
+    const { data: lesson, error } = await supabase
+      .from('training_videos')
+      .update(video)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return lesson as unknown as TrainingLesson;
+  },
+
+  deleteVideo: async (id: string): Promise<void> => {
+    const { error } = await supabase
+      .from('training_videos')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
   }
 };

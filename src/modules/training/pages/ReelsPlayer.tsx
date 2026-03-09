@@ -1,16 +1,17 @@
-import { useTrainings } from "@/contexts/TrainingsContext";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, CheckCircle2, ChevronDown, Lock, Play } from "lucide-react";
-import { Progress } from "@/components/ui/progress";
-import { TrainingStepsChecklist } from "../components/TrainingStepsChecklist";
+import { ArrowLeft, Lock } from "lucide-react";
 import { TrainingQuiz } from "../components/TrainingQuiz";
 import YouTube, { YouTubeProps } from "react-youtube";
+import { useAuth } from "@/contexts/AuthContext";
+import { trainingService } from "../services/trainingService";
+import { TrainingLesson } from "../types";
 
 // Helper to extract YouTube ID from URL
 const extractYouTubeId = (url: string) => {
+  if (!url) return null;
   const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&?]+)/);
   return match ? match[1] : null;
 };
@@ -18,10 +19,9 @@ const extractYouTubeId = (url: string) => {
 export const ReelsPlayer = () => {
   const { trainingId } = useParams<{ trainingId: string }>();
   const navigate = useNavigate();
-  const { trainings, dishes, updateVideoProgress, markTrainingCompleted } = useTrainings();
+  const { user } = useAuth();
 
-  const [lessons, setLessons] = useState<any[]>([]); // Adapting dishes to lessons format
-  const [steps, setSteps] = useState<any[]>([]); // Steps will just be mock questions later
+  const [lessons, setLessons] = useState<TrainingLesson[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   
@@ -32,41 +32,33 @@ export const ReelsPlayer = () => {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Load from memory context instead of DB for this MVP environment
-    if (!trainingId) return;
+    const loadContent = async () => {
+      if (!trainingId || !user) return;
+      
+      try {
+        const data = await trainingService.getTrainingById(trainingId, user.id);
+        
+        // Filter lessons that have a video URL
+        const validLessons = data.lessons.filter(l => l.video_url);
+        setLessons(validLessons);
 
-    const tId = parseInt(trainingId, 10);
-    const training = trainings.find(t => t.id === tId);
+        // Initialize progress state (could be fetched from DB later)
+        const initialStatus: Record<string, boolean> = {};
+        validLessons.forEach(l => {
+          initialStatus[l.id] = false; 
+        });
+        setVideoProgress(initialStatus);
+        
+      } catch (error) {
+        console.error("Erro ao carregar aulas:", error);
+        toast.error("Erro ao carregar o conteúdo do treinamento");
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    if (training) {
-      // Map DishMock to the Lesson shape expected by ReelsPlayer
-      const mappedLessons = training.dishes.map(dishId => {
-        const dish = dishes.find(d => d.id === dishId);
-        return {
-          id: dishId.toString(),
-          title: dish?.title || "Sem Título",
-          video_url: dish?.videoUrl || "",
-        };
-      }).filter(l => l.video_url);
-
-      setLessons(mappedLessons);
-
-      // Create fake steps for the quiz based on the lessons
-      setSteps(mappedLessons.map((l, i) => ({
-         id: `step-${l.id}`,
-         title: `Você aprendeu sobre o preparo de ${l.title} neste treinamento.`,
-         required: true
-      })));
-
-      const initialStatus: Record<string, boolean> = {};
-      mappedLessons.forEach(l => {
-        initialStatus[l.id] = false; 
-      });
-      setVideoProgress(initialStatus);
-    }
-    
-    setLoading(false);
-  }, [trainingId, trainings, dishes]);
+    loadContent();
+  }, [trainingId, user]);
 
   const currentLesson = lessons[currentIndex];
   // Verify if current video is unlocked
@@ -79,7 +71,8 @@ export const ReelsPlayer = () => {
 
     if (!isCurrentVideoFinished && !quizMode) {
       // Force scroll back to current video
-      container.scrollTop = currentIndex * window.innerHeight;
+      // container.scrollTop = currentIndex * window.innerHeight;
+      // Allowing scroll but snapping back might be glitchy, better to rely on CSS touch-action
     } else {
       // Calculate current item based on scroll position safely
       const position = Math.round(container.scrollTop / window.innerHeight);
@@ -93,7 +86,10 @@ export const ReelsPlayer = () => {
 
   const handleVideoCompleted = (lessonId: string) => {
     setVideoProgress(prev => ({ ...prev, [lessonId]: true }));
-    toast.success("Vídeo concluído! Você pode deslizar para o próximo.");
+    // Optional: Auto-advance or toast
+    if (!videoProgress[lessonId]) {
+      toast.success("Vídeo concluído! Você pode deslizar para o próximo.");
+    }
   };
 
   const slideNext = () => {
@@ -111,34 +107,31 @@ export const ReelsPlayer = () => {
     }
   };
 
-  const handleQuizSuccess = () => {
-     if (!trainingId) return;
+  const handleQuizSuccess = async () => {
+     if (!trainingId || !user) return;
      
-     const tId = parseInt(trainingId, 10);
-     
-     // Mark every video as 100% in context
-     lessons.forEach(l => {
-       updateVideoProgress(tId, parseInt(l.id, 10), 100);
-     });
-     
-     markTrainingCompleted(1, tId); // hardcoded employeeId 1 for mock MVP
-     toast.success("Parabéns! Você concluiu o treinamento.");
-     navigate(-1);
+     try {
+       await trainingService.requestTrainingApproval(trainingId, user.id);
+       toast.success("Parabéns! Você concluiu o treinamento.");
+       navigate(-1);
+     } catch (error) {
+       toast.error("Erro ao salvar progresso.");
+     }
   };
 
   if (loading) {
     return (
       <div className="bg-black text-white h-screen flex items-center justify-center">
-        Carregando Reels...
+        Carregando conteúdo...
       </div>
     );
   }
 
   if (lessons.length === 0) {
     return (
-      <div className="bg-black text-white h-screen flex flex-col items-center justify-center space-y-4">
-        <p>Nenhuma aula encontrada para este treinamento.</p>
-        <Button onClick={() => navigate(-1)}>Voltar</Button>
+      <div className="bg-black text-white h-screen flex flex-col items-center justify-center space-y-4 p-4 text-center">
+        <p>Nenhuma aula com vídeo encontrada para este treinamento.</p>
+        <Button onClick={() => navigate(-1)} variant="outline" className="text-black">Voltar</Button>
       </div>
     );
   }
@@ -146,10 +139,12 @@ export const ReelsPlayer = () => {
   return (
     <div className="h-screen w-full bg-black text-white overflow-hidden relative">
        {/* Top Bar Overlay */}
-       <div className="absolute top-0 w-full z-50 p-4 bg-gradient-to-b from-black/80 to-transparent flex items-center justify-between safe-area-top">
-         <Button variant="ghost" size="icon" className="text-white hover:bg-white/20" onClick={() => navigate(-1)}>
-            <ArrowLeft className="w-6 h-6" />
-         </Button>
+       <div className="absolute top-0 w-full z-50 p-4 bg-gradient-to-b from-black/80 to-transparent flex items-center justify-between safe-area-top pointer-events-none">
+         <div className="pointer-events-auto">
+            <Button variant="ghost" size="icon" className="text-white hover:bg-white/20" onClick={() => navigate(-1)}>
+                <ArrowLeft className="w-6 h-6" />
+            </Button>
+         </div>
          <div className="flex-1 text-center px-4">
             <h1 className="font-bold text-sm truncate">{quizMode ? "Quiz Final" : currentLesson?.title}</h1>
             <p className="text-xs text-white/70">
@@ -164,17 +159,16 @@ export const ReelsPlayer = () => {
          ref={containerRef}
          className="h-full w-full overflow-y-auto snap-y snap-mandatory no-scrollbar scroll-smooth"
          onScroll={handleScroll}
-         // Se o vídeo não acabou, bloqueamos toque para arrastar (overscroll behaviour fallback)
-         style={(!isCurrentVideoFinished && !quizMode) ? { touchAction: 'none' } : {}}
+         // Block scroll if video not finished (CSS logic)
+         style={(!isCurrentVideoFinished && !quizMode) ? { overflowY: 'hidden' } : {}}
        >
           {lessons.map((lesson, index) => (
              <div key={lesson.id} className="h-screen w-full snap-center relative flex items-center justify-center bg-black">
-                {/* Simulated Player (since we rely on generic iframes, we will build a custom internal wrapper here) */}
                 <ReelsVideoItem 
                   lesson={lesson} 
                   isActive={index === currentIndex && !quizMode} 
                   onCompleted={() => handleVideoCompleted(lesson.id)}
-                  isFinished={videoProgress[lesson.id]}
+                  isFinished={!!videoProgress[lesson.id]}
                 />
              </div>
           ))}
@@ -183,7 +177,15 @@ export const ReelsPlayer = () => {
           <div className="h-screen w-full snap-center bg-zinc-950 relative flex flex-col pt-24 pb-12 px-6 overflow-y-auto">
              {quizMode && (
                <TrainingQuiz 
-                  steps={steps} 
+                  // Mock steps for now as they are not fully linked to questions in DB yet
+                  steps={lessons.map(l => ({ 
+                    id: l.id, 
+                    training_id: trainingId!,
+                    description: `Conteúdo sobre ${l.title}`, 
+                    required: true,
+                    order_index: 0,
+                    created_at: new Date().toISOString()
+                  }))} 
                   onSuccess={handleQuizSuccess} 
                />
              )}
@@ -222,35 +224,34 @@ export const ReelsPlayer = () => {
 };
 
 // Internal Video Item Component 
-const ReelsVideoItem = ({ lesson, isActive, onCompleted, isFinished }: { lesson: any, isActive: boolean, onCompleted: () => void, isFinished: boolean }) => {
-  const [progress, setProgress] = useState(0);
+const ReelsVideoItem = ({ lesson, isActive, onCompleted, isFinished }: { lesson: TrainingLesson, isActive: boolean, onCompleted: () => void, isFinished: boolean }) => {
   const [player, setPlayer] = useState<any>(null);
   const [duration, setDuration] = useState(0);
 
-  const videoId = lesson.video_url ? extractYouTubeId(lesson.video_url) : null;
+  const videoId = extractYouTubeId(lesson.video_url || "");
   
   useEffect(() => {
     let interval: number;
     if (isActive && !isFinished && player && duration > 0) {
       interval = window.setInterval(() => {
-        const currentTime = player.getCurrentTime();
-        const currentProgress = (currentTime / duration) * 100;
-        setProgress(currentProgress);
-        
-        // Safety check if YouTube's onEnd event fails to trigger exactly at the end
-        if (currentProgress >= 98 || currentTime >= duration - 1) {
-           setProgress(100);
-           onCompleted();
-           clearInterval(interval);
+        try {
+          const currentTime = player.getCurrentTime();
+          // Safety check if YouTube's onEnd event fails to trigger exactly at the end
+          if (currentTime >= duration - 1 && duration > 5) {
+             onCompleted();
+             clearInterval(interval);
+          }
+        } catch (e) {
+          // Player might be disposed
         }
-      }, 500);
+      }, 1000);
     }
     return () => clearInterval(interval);
   }, [isActive, isFinished, player, duration, onCompleted]);
 
   // Handle play/pause when sliding
   useEffect(() => {
-    if (player) {
+    if (player && typeof player.playVideo === 'function') {
       if (isActive) {
         player.playVideo();
       } else {
@@ -270,7 +271,6 @@ const ReelsVideoItem = ({ lesson, isActive, onCompleted, isFinished }: { lesson:
   const onStateChange: YouTubeProps['onStateChange'] = (event) => {
     // 0 = ended
     if (event.data === 0) {
-      setProgress(100);
       onCompleted();
     }
   };
@@ -280,39 +280,41 @@ const ReelsVideoItem = ({ lesson, isActive, onCompleted, isFinished }: { lesson:
     width: '100%',
     playerVars: {
       autoplay: isActive ? 1 : 0,
-      controls: 1, // Let user control but we track background
+      controls: 1, 
       rel: 0,
       modestbranding: 1,
-      fs: 1, // Fullscreen button
+      fs: 0, // Disable fullscreen on mobile to keep overlay UI
       playsinline: 1,
     },
   };
 
   return (
-    <div className="w-full h-full relative">
+    <div className="w-full h-full relative flex items-center justify-center bg-black">
        {/* Background Blur for non-perfect ratios */}
-       <div 
-         className="absolute inset-0 bg-cover bg-center blur-3xl opacity-30" 
-         style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1555939594-58d7cb561ad1)' }} 
-       />
+       {videoId && (
+        <div 
+          className="absolute inset-0 bg-cover bg-center blur-3xl opacity-30 pointer-events-none" 
+          style={{ backgroundImage: `url(https://img.youtube.com/vi/${videoId}/hqdefault.jpg)` }} 
+        />
+       )}
        
        {videoId ? (
-         <div className="w-full h-full absolute inset-0 pt-[80px] pb-[120px]">
+         <div className="w-full h-full absolute inset-0 pt-[80px] pb-[120px] flex items-center justify-center">
            <YouTube 
              videoId={videoId} 
              opts={opts} 
              onReady={onReady} 
              onStateChange={onStateChange}
-             className="w-full h-full flex items-center justify-center max-h-[80vh] mx-auto"
+             className="w-full h-full flex items-center justify-center max-h-[80vh]"
              iframeClassName="w-full h-full max-w-lg aspect-[9/16] object-contain rounded-2xl shadow-2xl mx-auto border border-white/10 bg-black"
            />
          </div>
        ) : lesson.video_url ? (
-          // Fallback for non-youtube links (e.g., .mp4)
+          // Fallback for non-youtube links
          <iframe
            src={lesson.video_url}
-           className="w-full h-full object-cover pointer-events-none absolute inset-0"
-           allow="autoplay"
+           className="w-full h-full object-contain pointer-events-auto absolute inset-0 pt-[80px] pb-[120px]"
+           allow="autoplay; fullscreen"
          />
        ) : (
          <div className="w-full h-full absolute inset-0 flex items-center justify-center text-white/50 bg-zinc-900">
@@ -325,7 +327,7 @@ const ReelsVideoItem = ({ lesson, isActive, onCompleted, isFinished }: { lesson:
        
        <div className="absolute bottom-12 left-0 w-full px-4 pb-4 pointer-events-none z-10">
          <h2 className="text-xl font-bold mb-2 break-words max-w-[80%]">{lesson.title}</h2>
-         <p className="text-sm text-white/80 line-clamp-2 max-w-[80%]">Assista atentamente as instruções da aula antes de avançar para a prova.</p>
+         <p className="text-sm text-white/80 line-clamp-2 max-w-[80%]">Assista atentamente as instruções da aula antes de avançar.</p>
        </div>
     </div>
   )

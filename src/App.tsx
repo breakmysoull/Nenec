@@ -25,6 +25,7 @@ import { MyTrainings } from "./modules/training/pages/MyTrainings";
 // import { TrainingDetail } from "./modules/training/pages/TrainingDetail";
 // import { LessonPlayer } from "./modules/training/pages/LessonPlayer";
 import { ReelsPlayer } from "./modules/training/pages/ReelsPlayer";
+import { TrainingManager } from "./modules/training/pages/TrainingManager";
 import Products from "./pages/Products";
 import Units from "./pages/Units";
 import Users from "./pages/Users";
@@ -121,6 +122,14 @@ const App = () => (
               element={
                 <ProtectedRoute requiredPermission="view_training">
                   <MyTrainings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/training/manage"
+              element={
+                <ProtectedRoute requiredPermission="view_training">
+                  <TrainingManager />
                 </ProtectedRoute>
               }
             />
