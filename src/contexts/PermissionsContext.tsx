@@ -33,6 +33,16 @@ type AdminView = "OPERATOR" | "MANAGER";
 
 const SUPER_ADMIN_EMAILS = ["admin@codex.app", "erycryto@gmail.com"];
 const ADMIN_VIEW_STORAGE_KEY = "codex_admin_view";
+const PERMISSIONS_CACHE_KEY = "codex_permissions_cache_v1";
+
+interface PermissionsCache {
+  userId: string;
+  baseRole: AppRole;
+  roles: UserRoleRow[];
+  units: Unit[];
+  isSuperAdmin: boolean;
+  timestamp: number;
+}
 
 const PermissionsContext = createContext<PermissionsContextType>({
   role: null,
@@ -58,12 +68,29 @@ export const usePermissions = () => {
 
 export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
-  const [baseRole, setBaseRole] = useState<AppRole | null>(null);
-  const [roles, setRoles] = useState<UserRoleRow[] | null>(null);
-  const [units, setUnits] = useState<Unit[]>([]);
+  
+  // Helper to load cache
+  const getCache = (): PermissionsCache | null => {
+    if (typeof window === "undefined" || !user) return null;
+    try {
+      const stored = localStorage.getItem(PERMISSIONS_CACHE_KEY);
+      if (!stored) return null;
+      const parsed = JSON.parse(stored) as PermissionsCache;
+      if (parsed.userId !== user.id) return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  };
+
+  const cache = useMemo(() => getCache(), [user?.id]);
+
+  const [baseRole, setBaseRole] = useState<AppRole | null>(() => cache?.baseRole || null);
+  const [roles, setRoles] = useState<UserRoleRow[] | null>(() => cache?.roles || null);
+  const [units, setUnits] = useState<Unit[]>(() => cache?.units || []);
   const [activeUnitId, setActiveUnitId] = useState<string | null>(null);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
-  const [permissionsLoading, setPermissionsLoading] = useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(() => cache?.isSuperAdmin || false);
+  const [permissionsLoading, setPermissionsLoading] = useState(() => !cache);
   const [permissionsError, setPermissionsError] = useState<Error | null>(null);
   const [adminView, setAdminView] = useState<AdminView | null>(() => {
     if (typeof window === "undefined") return null;
@@ -96,11 +123,17 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setPermissionsLoading(false);
       setPermissionsError(null);
       localStorage.removeItem(ADMIN_VIEW_STORAGE_KEY);
+      localStorage.removeItem(PERMISSIONS_CACHE_KEY);
       return;
     }
 
     let cancelled = false;
-    setPermissionsLoading(true);
+    
+    // Only show loading if we don't have a valid cache
+    if (!cache) {
+      setPermissionsLoading(true);
+    }
+    
     setPermissionsError(null);
     setIsSuperAdmin(emailIsSuperAdmin);
 
@@ -202,13 +235,22 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
             setActiveUnitId(null);
           }
 
-          if (emailIsSuperAdmin) {
-            setBaseRole("super_admin");
-          } else if (fetchedRoles.length > 0) {
-            setBaseRole(normalizeRole(fetchedRoles[0].role));
-          } else {
-            setBaseRole("operator");
-          }
+          const finalBaseRole = emailIsSuperAdmin 
+            ? "super_admin" 
+            : (fetchedRoles.length > 0 ? normalizeRole(fetchedRoles[0].role) : "operator");
+            
+          setBaseRole(finalBaseRole);
+
+          // Save to cache
+          const newCache: PermissionsCache = {
+            userId: user.id,
+            baseRole: finalBaseRole as AppRole,
+            roles: fetchedRoles,
+            units: fetchedUnits,
+            isSuperAdmin: emailIsSuperAdmin,
+            timestamp: Date.now()
+          };
+          localStorage.setItem(PERMISSIONS_CACHE_KEY, JSON.stringify(newCache));
         }
       } catch (error) {
         const err = error instanceof Error ? error : new Error("Erro ao carregar permissões");

@@ -1,6 +1,6 @@
 // Database types for the fast food operations platform
 
-export type AppRole = 'super_admin' | 'admin' | 'manager' | 'operator' | 'lider_turno' | 'admin_rede' | 'gerente' | 'operador';
+export type AppRole = 'super_admin' | 'admin' | 'manager' | 'operator' | 'trainee' | 'lider_turno' | 'admin_rede' | 'gerente' | 'operador';
 
 export type StockMovementType = 'compra' | 'producao' | 'venda' | 'perda' | 'ajuste';
 
@@ -9,6 +9,22 @@ export type OrderStatus = 'pendente' | 'aprovado' | 'entregue' | 'cancelado';
 export type ChecklistType = 'abertura' | 'praca' | 'fechamento';
 
 export type ChecklistItemType = 'check' | 'foto_obrigatoria' | 'video_opcional';
+
+export type ActionPlanStatus = 'PENDING' | 'IN_PROGRESS' | 'RESOLVED' | 'VERIFIED_BY_MANAGER';
+
+export interface ChecklistActionPlan {
+  id: string;
+  response_id: string;
+  unit_id: string;
+  assigned_to?: string;
+  status: ActionPlanStatus;
+  description: string;
+  resolution_notes?: string;
+  resolution_evidence_url?: string;
+  due_date?: string;
+  created_at: string;
+  updated_at: string;
+}
 
 export type TrainingStatus = 'pendente' | 'em_andamento' | 'concluido';
 
@@ -30,6 +46,7 @@ export const roleLabels: Record<AppRole, string> = {
   admin: 'Administrador',
   manager: 'Gerente',
   operator: 'Operador',
+  trainee: 'Funcionário em Treinamento',
   // Legacy / PT-BR support
   admin_rede: 'Admin da Rede',
   gerente: 'Gerente',

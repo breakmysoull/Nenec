@@ -13,11 +13,15 @@ import {
   ChevronRight,
   Eye,
   AlertCircle,
-  CheckSquare
+  CheckSquare,
+  X
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerFooter } from "@/components/ui/drawer";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { checklistService } from "@/services/checklistService";
@@ -47,6 +51,12 @@ type ExecutedChecklist = {
   items: ChecklistReviewItem[];
 };
 
+type FilterState = {
+  period: "today" | "week" | "month";
+  reviewStatus: "all" | "pending" | "reviewed";
+  severity: "all" | "critical" | "ok";
+};
+
 const reasonLabels: Record<string, string> = {
   sujo: "Sujo / Limpeza",
   falta: "Falta de Item",
@@ -58,18 +68,26 @@ const reasonLabels: Record<string, string> = {
 const ChecklistReview = () => {
   const { user } = useAuth();
   const { activeUnitId, isSuperAdmin } = usePermissions();
+  const [allChecklists, setAllChecklists] = useState<ExecutedChecklist[]>([]);
   const [executedChecklists, setExecutedChecklists] = useState<ExecutedChecklist[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedChecklist, setSelectedChecklist] = useState<ExecutedChecklist | null>(null);
   const [isReviewDialogOpen, setIsReviewDialogOpen] = useState(false);
+  const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
   const [managerObservation, setManagerObservation] = useState("");
+  const [filters, setFilters] = useState<FilterState>({
+    period: "today",
+    reviewStatus: "all",
+    severity: "all",
+  });
+  const [pendingFilters, setPendingFilters] = useState<FilterState>(filters);
 
   useEffect(() => {
     let cancelled = false;
 
     const loadCompleted = async () => {
       if (!activeUnitId && !isSuperAdmin) {
-        setExecutedChecklists([]);
+        setAllChecklists([]);
         setLoading(false);
         return;
       }
@@ -77,30 +95,79 @@ const ChecklistReview = () => {
       setLoading(true);
       const runs = await checklistService.getCompletedChecklistRuns(activeUnitId || undefined, isSuperAdmin);
       if (!cancelled) {
-        setExecutedChecklists(
-          runs.map((run) => ({
-            id: run.id,
-            name: run.name,
-            unit: run.unit,
-            executor: run.executor,
-            startTime: run.startTime,
-            endTime: run.endTime,
-            date: run.date,
-            status: run.status,
-            reviewed: Boolean(run.reviewedAt),
-            items: [],
-          }))
-        );
+        const mapped = runs.map((run) => ({
+          id: run.id,
+          name: run.name,
+          unit: run.unit,
+          executor: run.executor,
+          startTime: run.startTime,
+          endTime: run.endTime,
+          date: run.date,
+          status: run.status,
+          reviewed: Boolean(run.reviewedAt),
+          items: [],
+        }));
+        setAllChecklists(mapped);
         setLoading(false);
       }
     };
 
     loadCompleted();
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [activeUnitId, isSuperAdmin]);
+
+  // Apply filters whenever allChecklists or filters change
+  useEffect(() => {
+    let filtered = [...allChecklists];
+
+    // Period filter
+    const now = new Date();
+    if (filters.period === "today") {
+      const startOfDay = new Date(now);
+      startOfDay.setHours(0, 0, 0, 0);
+      filtered = filtered.filter((c) => {
+        const d = new Date(c.date);
+        return d >= startOfDay;
+      });
+    } else if (filters.period === "week") {
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(startOfWeek.getDate() - 7);
+      filtered = filtered.filter((c) => new Date(c.date) >= startOfWeek);
+    } else if (filters.period === "month") {
+      const startOfMonth = new Date(now);
+      startOfMonth.setDate(startOfMonth.getDate() - 30);
+      filtered = filtered.filter((c) => new Date(c.date) >= startOfMonth);
+    }
+
+    // Review status filter
+    if (filters.reviewStatus === "pending") {
+      filtered = filtered.filter((c) => !c.reviewed);
+    } else if (filters.reviewStatus === "reviewed") {
+      filtered = filtered.filter((c) => c.reviewed);
+    }
+
+    // Severity filter
+    if (filters.severity === "critical") {
+      filtered = filtered.filter((c) => c.status === "critical");
+    } else if (filters.severity === "ok") {
+      filtered = filtered.filter((c) => c.status === "ok");
+    }
+
+    setExecutedChecklists(filtered);
+  }, [allChecklists, filters]);
+
+  const applyFilters = () => {
+    setFilters(pendingFilters);
+    setIsFilterDrawerOpen(false);
+  };
+
+  const resetFilters = () => {
+    const defaultFilters: FilterState = { period: "today", reviewStatus: "all", severity: "all" };
+    setFilters(defaultFilters);
+    setPendingFilters(defaultFilters);
+    setIsFilterDrawerOpen(false);
+  };
 
   const handleOpenReview = async (checklist: ExecutedChecklist) => {
     setSelectedChecklist(checklist);
@@ -124,11 +191,9 @@ const ChecklistReview = () => {
         user.id
       );
 
-      if (!success) {
-        return;
-      }
+      if (!success) return;
 
-      setExecutedChecklists((prev) =>
+      setAllChecklists((prev) =>
         prev.map((item) =>
           item.id === selectedChecklist.id ? { ...item, reviewed: true } : item
         )
@@ -141,35 +206,68 @@ const ChecklistReview = () => {
     }
   };
 
+  const activeFilterCount = [
+    filters.period !== "today",
+    filters.reviewStatus !== "all",
+    filters.severity !== "all",
+  ].filter(Boolean).length;
+
+  const periodLabel: Record<string, string> = { today: "Hoje", week: "7 dias", month: "30 dias" };
+  const reviewStatusLabel: Record<string, string> = { all: "Todos", pending: "Pendentes", reviewed: "Revisados" };
+  const severityLabel: Record<string, string> = { all: "Todos", critical: "Com Falhas", ok: "Sem Falhas" };
+
   return (
     <AppLayout title="Revisão de Checklists">
       <PageHeader
         title="Revisão Operacional"
         subtitle="Auditoria de checklists executados"
         actions={
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={() => { setPendingFilters(filters); setIsFilterDrawerOpen(true); }}>
             <Filter className="w-4 h-4 mr-2" />
             Filtros
+            {activeFilterCount > 0 && (
+              <span className="ml-1.5 bg-primary text-primary-foreground rounded-full text-[10px] w-4 h-4 flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
           </Button>
         }
       />
 
       <div className="p-4 space-y-6">
-        {/* Filters Summary (Mock) */}
+        {/* Active Filters Summary */}
         <div className="flex gap-2 overflow-x-auto pb-2">
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded-full text-xs whitespace-nowrap border">
-            <Building2 className="w-3 h-3 text-muted-foreground" />
-            Todas as Unidades
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-xs whitespace-nowrap border border-primary/20 font-medium">
+            <CalendarIcon className="w-3 h-3" />
+            {periodLabel[filters.period]}
           </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded-full text-xs whitespace-nowrap border">
-            <CalendarIcon className="w-3 h-3 text-muted-foreground" />
-            Hoje
-          </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded-full text-xs whitespace-nowrap border">
-            <AlertCircle className="w-3 h-3 text-muted-foreground" />
-            Pendentes de Revisão
-          </div>
+          {filters.reviewStatus !== "all" && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-muted rounded-full text-xs whitespace-nowrap border font-medium">
+              <CheckSquare className="w-3 h-3" />
+              {reviewStatusLabel[filters.reviewStatus]}
+              <button onClick={() => setFilters(f => ({ ...f, reviewStatus: "all" }))}><X className="w-3 h-3 ml-0.5 opacity-60" /></button>
+            </div>
+          )}
+          {filters.severity !== "all" && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-muted rounded-full text-xs whitespace-nowrap border font-medium">
+              <AlertCircle className="w-3 h-3" />
+              {severityLabel[filters.severity]}
+              <button onClick={() => setFilters(f => ({ ...f, severity: "all" }))}><X className="w-3 h-3 ml-0.5 opacity-60" /></button>
+            </div>
+          )}
+          {activeFilterCount > 0 && (
+            <button onClick={resetFilters} className="px-3 py-1.5 text-xs text-muted-foreground whitespace-nowrap underline-offset-2 hover:underline">
+              Limpar
+            </button>
+          )}
         </div>
+
+        {/* Result count */}
+        {!loading && (
+          <p className="text-xs text-muted-foreground -mt-2">
+            {executedChecklists.length} resultado{executedChecklists.length !== 1 ? "s" : ""}
+          </p>
+        )}
 
         {/* Checklist List */}
         <section className="space-y-3">
@@ -180,14 +278,17 @@ const ChecklistReview = () => {
           ) : executedChecklists.length === 0 ? (
             <EmptyState
               icon={ClipboardCheck}
-              title="Sem checklists executados"
-              description="Não há checklists finalizados para revisar"
+              title="Nenhum resultado"
+              description="Ajuste os filtros ou aguarde execuções"
             />
           ) : (
             executedChecklists.map((checklist) => (
               <div 
                 key={checklist.id}
-                className="bg-card rounded-xl border shadow-sm p-4 cursor-pointer hover:border-primary/50 transition-colors"
+                className={cn(
+                  "bg-card rounded-xl border shadow-sm p-4 cursor-pointer hover:border-primary/50 transition-colors",
+                  checklist.status === "critical" && !checklist.reviewed && "border-l-4 border-l-destructive"
+                )}
                 onClick={() => handleOpenReview(checklist)}
               >
                 <div className="flex justify-between items-start mb-3">
@@ -198,24 +299,24 @@ const ChecklistReview = () => {
                       {checklist.unit}
                     </div>
                   </div>
-                <div className="flex flex-col items-end gap-2">
-                  {checklist.status === "critical" && (
-                    <div className="px-2 py-1 bg-destructive/10 text-destructive text-xs font-bold rounded">
-                      Com Falhas
-                    </div>
-                  )}
-                  {checklist.reviewed ? (
-                    <div className="px-2 py-1 bg-success/10 text-success text-xs font-bold rounded flex items-center gap-1">
-                      <CheckSquare className="w-3 h-3" />
-                      REVISADO
-                    </div>
-                  ) : (
-                    <div className="px-2 py-1 bg-warning/10 text-warning text-xs font-bold rounded flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      PENDENTE
-                    </div>
-                  )}
-                </div>
+                  <div className="flex flex-col items-end gap-2">
+                    {checklist.status === "critical" && (
+                      <div className="px-2 py-1 bg-destructive/10 text-destructive text-xs font-bold rounded">
+                        Com Falhas
+                      </div>
+                    )}
+                    {checklist.reviewed ? (
+                      <div className="px-2 py-1 bg-success/10 text-success text-xs font-bold rounded flex items-center gap-1">
+                        <CheckSquare className="w-3 h-3" />
+                        REVISADO
+                      </div>
+                    ) : (
+                      <div className="px-2 py-1 bg-warning/10 text-warning text-xs font-bold rounded flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        PENDENTE
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between text-sm border-t pt-3">
@@ -250,6 +351,61 @@ const ChecklistReview = () => {
           )}
         </section>
       </div>
+
+      {/* Filter Drawer */}
+      <Drawer open={isFilterDrawerOpen} onOpenChange={setIsFilterDrawerOpen}>
+        <DrawerContent>
+          <div className="mx-auto w-full max-w-sm">
+            <DrawerHeader>
+              <DrawerTitle className="flex items-center gap-2">
+                <Filter className="w-5 h-5" />
+                Filtrar Revisões
+              </DrawerTitle>
+            </DrawerHeader>
+            <div className="p-4 space-y-5">
+              <div className="space-y-2">
+                <Label>Período</Label>
+                <Select value={pendingFilters.period} onValueChange={(v) => setPendingFilters(f => ({ ...f, period: v as FilterState["period"] }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="today">Hoje</SelectItem>
+                    <SelectItem value="week">Últimos 7 dias</SelectItem>
+                    <SelectItem value="month">Últimos 30 dias</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Status de Revisão</Label>
+                <Select value={pendingFilters.reviewStatus} onValueChange={(v) => setPendingFilters(f => ({ ...f, reviewStatus: v as FilterState["reviewStatus"] }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    <SelectItem value="pending">Pendentes de Revisão</SelectItem>
+                    <SelectItem value="reviewed">Já Revisados</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Gravidade</Label>
+                <Select value={pendingFilters.severity} onValueChange={(v) => setPendingFilters(f => ({ ...f, severity: v as FilterState["severity"] }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    <SelectItem value="critical">Apenas com Falhas</SelectItem>
+                    <SelectItem value="ok">Apenas sem Falhas</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DrawerFooter className="gap-2">
+              <Button className="w-full" onClick={applyFilters}>Aplicar Filtros</Button>
+              <Button variant="outline" className="w-full" onClick={resetFilters}>Limpar Tudo</Button>
+            </DrawerFooter>
+          </div>
+        </DrawerContent>
+      </Drawer>
 
       {/* Review Modal */}
       <Dialog open={isReviewDialogOpen} onOpenChange={setIsReviewDialogOpen}>

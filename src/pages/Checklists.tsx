@@ -28,9 +28,12 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerFooter } from "
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { checklistService, TodayChecklist } from "@/services/checklistService";
+import { syncService } from "@/services/checklistSyncService";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/contexts/PermissionsContext";
 import { useNavigate } from "react-router-dom";
+import { isManagerOrAbove } from "@/lib/permissions";
+import imageCompression from 'browser-image-compression';
 
 type ChecklistAnswer = {
   status?: 'ok' | 'nok';
@@ -48,13 +51,50 @@ const typeIcons = {
   fechamento: Moon,
 };
 
+const typeLabels: Record<string, string> = {
+  abertura: 'Abertura',
+  praca: 'Praça',
+  fechamento: 'Fechamento',
+};
+
+const typeOrder = ['abertura', 'praca', 'fechamento'] as const;
+
+const getUrgencyTag = (checklist: { timefenceStart?: string | null; timefenceEnd?: string | null; status: string }) => {
+  if (checklist.status === 'completed') return null;
+
+  const now = new Date();
+  const nowSecs = now.getHours() * 3600 + now.getMinutes() * 60;
+
+  const parseTime = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    return h * 3600 + m * 60;
+  };
+
+  if (checklist.timefenceEnd) {
+    const endSecs = parseTime(checklist.timefenceEnd);
+    const diff = endSecs - nowSecs;
+    if (diff < 0) {
+      return { label: 'Atrasado', className: 'bg-destructive/10 text-destructive' };
+    }
+    if (diff <= 1800) { // 30 min
+      return { label: 'Urgente', className: 'bg-orange-500/10 text-orange-500' };
+    }
+  }
+
+  if (checklist.status === 'in_progress') {
+    return { label: 'Em Andamento', className: 'bg-warning/10 text-warning' };
+  }
+
+  return null;
+};
+
 const Checklists = () => {
   const { user } = useAuth();
   const { activeUnitId, role } = usePermissions();
   const navigate = useNavigate();
   const [checklists, setChecklists] = useState<TodayChecklist[]>([]);
   
-  const isAdmin = role === 'gerente' || role === 'admin_rede';
+  const isAdmin = isManagerOrAbove(role);
   const [loading, setLoading] = useState(true);
   const [activeChecklistId, setActiveChecklistId] = useState<string | null>(null);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -155,6 +195,39 @@ const Checklists = () => {
   const progress = items.length > 0 ? ((currentItemIndex) / items.length) * 100 : 0;
 
   const handleStartChecklist = async (id: string) => {
+    const checklist = checklists.find(c => c.id === id);
+    if (!checklist) return;
+
+    // Timefence Logic
+    if (checklist.timefenceStart || checklist.timefenceEnd) {
+      const now = new Date();
+      const currentTotalSeconds = now.getHours() * 3600 + now.getMinutes() * 60;
+
+      const parseTime = (timeStr: string) => {
+        const [h, m] = timeStr.split(':').map(Number);
+        return h * 3600 + m * 60;
+      };
+
+      const startSecs = checklist.timefenceStart ? parseTime(checklist.timefenceStart) : 0;
+      const endSecs = checklist.timefenceEnd ? parseTime(checklist.timefenceEnd) : 86400;
+
+      let isAllowed = false;
+      if (startSecs > endSecs) {
+        // Overnight rule (e.g., 22:00 to 02:00)
+        if (currentTotalSeconds >= startSecs || currentTotalSeconds <= endSecs) isAllowed = true;
+      } else {
+        // Normal rule (e.g., 08:00 to 12:00)
+        if (currentTotalSeconds >= startSecs && currentTotalSeconds <= endSecs) isAllowed = true;
+      }
+
+      if (!isAllowed) {
+        const startLabel = checklist.timefenceStart?.substring(0,5) || '00:00';
+        const endLabel = checklist.timefenceEnd?.substring(0,5) || '23:59';
+        toast.error(`⏳ Fora do horário permitido (${startLabel} às ${endLabel})`);
+        return;
+      }
+    }
+
     setActiveChecklistId(id);
     setCurrentItemIndex(0);
     setAnswers({});
@@ -163,8 +236,14 @@ const Checklists = () => {
     setActionLocked(false);
 
     if (user && activeUnitId) {
-      const runId = await checklistService.startChecklistRun(id, activeUnitId, user.id);
-      setActiveRunId(runId);
+      if (!navigator.onLine) {
+        // Create an offline dummy run ID
+        setActiveRunId(`offline-run-${Date.now()}`);
+        toast.info("Offline: Iniciando em modo offline.");
+      } else {
+        const runId = await checklistService.startChecklistRun(id, activeUnitId, user.id);
+        setActiveRunId(runId);
+      }
     }
   };
 
@@ -178,15 +257,53 @@ const Checklists = () => {
     if (activeRunId && user) {
       const status = answer.status ?? "ok";
       const photoUrl = answer.url || answer.photo || null;
-      void checklistService.saveChecklistItemResult({
-        runId: activeRunId,
-        itemId: currentItem.id,
-        status,
-        reason: answer.reason,
-        observation: answer.observation,
-        photoUrl,
-        userId: user.id,
-      });
+
+      if (!navigator.onLine || activeRunId.startsWith('offline')) {
+        toast.info("Offline: Salvando resposta localmente.");
+        await syncService.enqueueTask({
+          type: 'SAVE_RESULT',
+          payload: {
+            runId: activeRunId,
+            itemId: currentItem.id,
+            status,
+            reason: answer.reason,
+            observation: answer.observation,
+            offlinePhotoData: photoUrl,
+            offlinePhotoName: photoUrl ? `offline_${Date.now()}.jpg` : null,
+            userId: user.id
+          }
+        });
+
+        if (status === 'nok' && activeUnitId) {
+           await syncService.enqueueTask({
+             type: 'CREATE_ACTION_PLAN',
+             payload: {
+               response_id: `offline-resp-${Date.now()}`, // Temporary ID for queuing
+               unit_id: activeUnitId,
+               description: `Regularizar falha: ${answer.reason || 'Desconhecida'}`,
+               resolution_notes: answer.observation,
+             }
+           });
+        }
+      } else {
+        const responseId = await checklistService.saveChecklistItemResult({
+          runId: activeRunId,
+          itemId: currentItem.id,
+          status,
+          reason: answer.reason,
+          observation: answer.observation,
+          photoUrl,
+          userId: user.id,
+        });
+
+        if (status === 'nok' && responseId && activeUnitId) {
+          await checklistService.createActionPlan({
+            response_id: responseId,
+            unit_id: activeUnitId,
+            description: `Regularizar falha: ${answer.reason || 'Desconhecida'}`,
+          });
+        }
+      }
     }
     
     if (currentItemIndex < items.length - 1) {
@@ -221,7 +338,16 @@ const Checklists = () => {
 
   const finishChecklist = async () => {
     if (activeRunId) {
-      await checklistService.completeChecklistRun(activeRunId);
+      if (!navigator.onLine || activeRunId.startsWith('offline')) {
+        await syncService.enqueueTask({
+          type: 'FINISH_RUN',
+          payload: { runId: activeRunId }
+        });
+        toast.info("Offline: Checklist finalizado pendente de sincronização.");
+      } else {
+        await checklistService.completeChecklistRun(activeRunId);
+        toast.success("Checklist finalizado com sucesso!");
+      }
     }
 
     if (activeChecklist) {
@@ -235,16 +361,19 @@ const Checklists = () => {
     }
 
     setCompleted(true);
-    toast.success("Checklist finalizado com sucesso!");
     localStorage.removeItem("checklist-progress");
   };
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    let file = e.target.files?.[0];
     if (!file || !currentItem) return;
 
     try {
       setUploading(true);
+      
+      const options = { maxSizeMB: 1, maxWidthOrHeight: 1280, useWebWorker: true };
+      try { file = await imageCompression(file, options); } catch (e) { console.error(e); }
+
       if (!activeRunId) {
         console.error("Checklist run não iniciado");
         return;
@@ -265,11 +394,15 @@ const Checklists = () => {
   };
 
   const handleNokPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    let file = e.target.files?.[0];
     if (!file || !currentItem) return;
 
     try {
       setUploading(true);
+      
+      const options = { maxSizeMB: 1, maxWidthOrHeight: 1280, useWebWorker: true };
+      try { file = await imageCompression(file, options); } catch (e) { console.error(e); }
+
       if (!activeRunId) {
         console.error("Checklist run não iniciado");
         return;
@@ -290,10 +423,13 @@ const Checklists = () => {
   };
 
   const handleFinalSetupUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    let file = e.target.files?.[0];
     if (!file || !activeRunId) return;
     try {
       setUploading(true);
+      const options = { maxSizeMB: 1, maxWidthOrHeight: 1280, useWebWorker: true };
+      try { file = await imageCompression(file, options); } catch (e) { console.error(e); }
+      
       const url = await checklistService.uploadFinalPhoto(file, activeRunId, "setup");
       if (url) setFinalSetupPhoto(url);
       else toast.error("Falha ao enviar foto da praça montada");
@@ -303,10 +439,13 @@ const Checklists = () => {
   };
 
   const handleFinalStockUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    let file = e.target.files?.[0];
     if (!file || !activeRunId) return;
     try {
       setUploading(true);
+      const options = { maxSizeMB: 1, maxWidthOrHeight: 1280, useWebWorker: true };
+      try { file = await imageCompression(file, options); } catch (e) { console.error(e); }
+
       const url = await checklistService.uploadFinalPhoto(file, activeRunId, "stock");
       if (url) setFinalStockPhoto(url);
       else toast.error("Falha ao enviar foto dos insumos estocados");
@@ -672,99 +811,122 @@ const Checklists = () => {
       />
 
       <div className="p-4 space-y-6">
-        {/* Today's Checklists */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-              Para Fazer Agora
-            </h3>
-            <span className="text-xs bg-muted px-2 py-1 rounded-md text-muted-foreground">
-              {new Date().toLocaleDateString()}
-            </span>
+        {loading ? (
+          <div className="flex items-center justify-center py-12 text-muted-foreground">
+            <Loader2 className="w-6 h-6 animate-spin" />
           </div>
-          
-          {loading ? (
-            <div className="flex items-center justify-center py-6 text-muted-foreground">
-              <Loader2 className="w-5 h-5 animate-spin" />
-            </div>
-          ) : checklists.length === 0 ? (
-            <EmptyState
-              icon={ClipboardCheck}
-              title="Sem checklists"
-              description="Não há checklists configurados para hoje"
-            />
-          ) : (
-            <div className="space-y-3">
-              {checklists.map((checklist) => {
-                const Icon = typeIcons[checklist.type];
-                const isComplete = checklist.status === "completed";
-                const isInProgress = checklist.status === "in_progress";
-                const statusLabel = isComplete
-                  ? "Concluído"
-                  : isInProgress
-                    ? "Em andamento"
-                    : "Pendente";
-                const statusClassName = isComplete
-                  ? "bg-success/10 text-success"
-                  : isInProgress
-                    ? "bg-warning/10 text-warning"
-                    : "bg-muted text-muted-foreground";
+        ) : checklists.length === 0 ? (
+          <EmptyState
+            icon={ClipboardCheck}
+            title="Sem checklists"
+            description="Não há checklists configurados para hoje"
+          />
+        ) : (
+          typeOrder.map((type) => {
+            const group = checklists.filter(c => c.type === type);
+            if (group.length === 0) return null;
 
-                return (
-                  <div
-                    key={checklist.id}
-                    onClick={() => handleStartChecklist(checklist.id)}
-                    className={cn(
-                      "list-item cursor-pointer active:scale-[0.98] transition-transform",
-                      isComplete && "opacity-60 grayscale"
-                    )}
-                  >
-                    <div className={cn(
-                      "p-3 rounded-xl",
-                      isComplete ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
-                    )}>
-                      <Icon className="w-6 h-6" />
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                         <span className="font-bold text-lg">{checklist.name}</span>
-                         <span className={cn("text-xs font-bold px-2 py-1 rounded", statusClassName)}>
-                           {statusLabel}
-                         </span>
+            const Icon = typeIcons[type];
+            const label = typeLabels[type];
+            const pendingCount = group.filter(c => c.status !== 'completed').length;
+
+            return (
+              <section key={type} className="space-y-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Icon className="w-4 h-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                    {label}
+                  </h3>
+                  {pendingCount > 0 && (
+                    <span className="ml-auto text-xs bg-muted px-2 py-0.5 rounded-full text-muted-foreground">
+                      {pendingCount} pendente{pendingCount > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+
+                {group.map((checklist) => {
+                  const isComplete = checklist.status === 'completed';
+                  const isInProgress = checklist.status === 'in_progress';
+                  const urgency = getUrgencyTag(checklist);
+
+                  const statusLabel = isComplete ? 'Concluído' : isInProgress ? 'Em andamento' : 'Pendente';
+                  const statusClassName = isComplete
+                    ? 'bg-success/10 text-success'
+                    : isInProgress
+                      ? 'bg-warning/10 text-warning'
+                      : 'bg-muted text-muted-foreground';
+
+                  return (
+                    <div
+                      key={checklist.id}
+                      onClick={() => handleStartChecklist(checklist.id)}
+                      className={cn(
+                        "list-item cursor-pointer active:scale-[0.98] transition-transform",
+                        isComplete && "opacity-60 grayscale",
+                        urgency?.label === 'Atrasado' && "border-l-4 border-destructive",
+                        urgency?.label === 'Urgente' && "border-l-4 border-orange-400"
+                      )}
+                    >
+                      <div className={cn(
+                        "p-3 rounded-xl",
+                        isComplete ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
+                      )}>
+                        <Icon className="w-6 h-6" />
                       </div>
-                      
-                      <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                         <div className="flex items-center gap-1">
-                           <Clock className="w-3.5 h-3.5" />
-                           <span>Prazo: {checklist.deadline}</span>
-                         </div>
-                         <div className="flex items-center gap-1">
-                           <ClipboardCheck className="w-3.5 h-3.5" />
-                           <span>{checklist.totalItems} itens</span>
-                         </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-base truncate">{checklist.name}</span>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {urgency && (
+                              <span className={cn("text-xs font-bold px-2 py-0.5 rounded", urgency.className)}>
+                                {urgency.label}
+                              </span>
+                            )}
+                            <span className={cn("text-xs font-bold px-2 py-0.5 rounded", statusClassName)}>
+                              {statusLabel}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-xs text-muted-foreground">
+                          {(checklist.timefenceStart || checklist.timefenceEnd) && (
+                            <div className="flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-warning" />
+                              <span className="text-warning font-semibold">
+                                {checklist.timefenceStart?.substring(0,5) || '00:00'} – {checklist.timefenceEnd?.substring(0,5) || '23:59'}
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-1">
+                            <ClipboardCheck className="w-3 h-3" />
+                            <span>{checklist.totalItems} itens</span>
+                          </div>
+                        </div>
                       </div>
+
+                      {!isComplete && (
+                        <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                      )}
                     </div>
-                    
-                    {!isComplete && (
-                      <ChevronRight className="w-5 h-5 text-muted-foreground" />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
+                  );
+                })}
+              </section>
+            );
+          })
+        )}
 
         {/* History Preview */}
-        <section className="pt-4 border-t">
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-            Histórico Recente
-          </h3>
-          <div className="text-sm text-muted-foreground text-center py-4 bg-muted/30 rounded-lg border border-dashed">
-            Nenhum checklist finalizado nos últimos 7 dias.
-          </div>
-        </section>
+        {!loading && checklists.length > 0 && (
+          <section className="pt-4 border-t">
+            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+              Histórico Recente
+            </h3>
+            <div className="text-sm text-muted-foreground text-center py-4 bg-muted/30 rounded-lg border border-dashed">
+              Nenhum checklist finalizado nos últimos 7 dias.
+            </div>
+          </section>
+        )}
       </div>
     </AppLayout>
   );

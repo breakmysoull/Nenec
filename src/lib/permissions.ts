@@ -35,8 +35,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
   ],
   manager: [
     'view_dashboard', 'view_stock', 'view_orders', 'view_checklists', 
-    'view_checklist_review', 'view_training', 'manage_stock', 'manage_orders',
-    'manage_checklists', 'create_order', 'submit_order', 'approve_order', 'receive_order'
+    'view_checklist_review', 'view_training', 'view_users', 'manage_stock', 'manage_orders',
+    'manage_users', 'manage_checklists', 'create_order', 'submit_order', 'approve_order', 'receive_order'
   ],
   operator: [
     'view_dashboard', 'view_stock', 'view_checklists', 'view_training',
@@ -51,17 +51,20 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
   ],
   gerente: [
     'view_dashboard', 'view_stock', 'view_orders', 'view_checklists', 
-    'view_checklist_review', 'view_training', 'manage_stock', 'manage_orders',
-    'manage_checklists', 'create_order', 'submit_order', 'approve_order', 'receive_order'
+    'view_checklist_review', 'view_training', 'view_users', 'manage_stock', 'manage_orders',
+    'manage_users', 'manage_checklists', 'create_order', 'submit_order', 'approve_order', 'receive_order'
   ],
   lider_turno: [
     'view_dashboard', 'view_stock', 'view_orders', 'view_checklists', 
-    'view_checklist_review', 'view_training', 'manage_stock', 'manage_orders',
-    'manage_checklists', 'create_order', 'submit_order', 'approve_order', 'receive_order'
+    'view_checklist_review', 'view_training', 'view_users', 'manage_stock', 'manage_orders',
+    'manage_users', 'manage_checklists', 'create_order', 'submit_order', 'approve_order', 'receive_order'
   ],
   operador: [
     'view_dashboard', 'view_stock', 'view_checklists', 'view_training',
     'create_order', 'submit_order'
+  ],
+  trainee: [
+    'view_training'
   ]
 };
 
@@ -94,7 +97,8 @@ const ROLE_HIERARCHY: Record<AppRole, number> = {
   gerente: 25,
   lider_turno: 25,
   operator: 10,
-  operador: 10
+  operador: 10,
+  trainee: 5
 };
 
 export const canCreateRole = (currentUserRole: AppRole | null, targetRole: AppRole): boolean => {
@@ -108,14 +112,14 @@ export const canCreateRole = (currentUserRole: AppRole | null, targetRole: AppRo
     return normalizedTarget !== 'super_admin';
   }
 
-  // Admin can create Manager and Operator
+  // Admin can create Manager, Operator and Trainee
   if (normalizedCurrent === 'admin') {
-    return ['manager', 'operator'].includes(normalizedTarget);
+    return ['manager', 'operator', 'trainee'].includes(normalizedTarget);
   }
 
-  // Manager can only create Operator
+  // Manager can create Operator and Trainee
   if (normalizedCurrent === 'manager') {
-    return normalizedTarget === 'operator';
+    return ['operator', 'trainee'].includes(normalizedTarget);
   }
 
   return false;
@@ -137,3 +141,19 @@ export const canManageUser = (currentUserRole: AppRole | null, targetUserRole: A
   return currentLevel > targetLevel;
 };
 
+/**
+ * Centralized role check helpers — use these instead of comparing role strings directly.
+ * They cover BOTH the new English roles (manager, admin) AND legacy Portuguese roles
+ * (gerente, admin_rede, lider_turno, operador) that may come from the database.
+ */
+export const isManagerOrAbove = (role: AppRole | null): boolean => {
+  if (!role) return false;
+  const normalized = normalizeRole(role);
+  return normalized === 'manager' || normalized === 'admin' || normalized === 'super_admin';
+};
+
+export const isAdminOrAbove = (role: AppRole | null): boolean => {
+  if (!role) return false;
+  const normalized = normalizeRole(role);
+  return normalized === 'admin' || normalized === 'super_admin';
+};

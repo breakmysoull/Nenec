@@ -38,12 +38,17 @@ export const ProtectedRoute = ({ children, requiredPermission }: ProtectedRouteP
     );
   }
 
-  if (requiredPermission && !role) {
+  if (requiredPermission && !role && !isAdminBase) {
+    // If no role at all, redirect trainee-like users to training, others to dashboard
     return <Navigate to="/dashboard" replace />;
   }
 
-  if (requiredPermission && role && !hasPermission(role, requiredPermission)) {
-    return <Navigate to="/dashboard" replace />;
+  const checkRole = (isAdminBase ? baseRole : role) || role;
+
+  if (requiredPermission && checkRole && !hasPermission(checkRole, requiredPermission)) {
+    // Trainee users should go to /training (the only module they have access to)
+    const fallback = checkRole === 'trainee' ? '/training' : '/dashboard';
+    return <Navigate to={fallback} replace />;
   }
 
   return <>{children}</>;

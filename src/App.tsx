@@ -7,10 +7,11 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { PermissionsProvider } from "@/contexts/PermissionsContext";
 import { TrainingsProvider } from "@/contexts/TrainingsContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { useEffect } from "react";
+import { syncService } from "@/services/checklistSyncService";
 
 // Auth Pages
 import Login from "./pages/auth/Login";
-import Register from "./pages/auth/Register";
 
 // App Pages
 import Dashboard from "./pages/Dashboard";
@@ -25,15 +26,31 @@ import { MyTrainings } from "./modules/training/pages/MyTrainings";
 // import { TrainingDetail } from "./modules/training/pages/TrainingDetail";
 // import { LessonPlayer } from "./modules/training/pages/LessonPlayer";
 import { ReelsPlayer } from "./modules/training/pages/ReelsPlayer";
-import { TrainingManager } from "./modules/training/pages/TrainingManager";
+import TrainingManager from "./pages/TrainingManager";
 import Products from "./pages/Products";
 import Units from "./pages/Units";
 import Users from "./pages/Users";
+import ActionPlans from "./pages/ActionPlans";
+import Analytics from "./pages/Analytics";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-const App = () => (
+const App = () => {
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log('App is online. Attempting to sync offline checklists...');
+      syncService.syncAll();
+    };
+
+    window.addEventListener('online', handleOnline);
+    // Initial sync attempt when app loads
+    syncService.syncAll();
+
+    return () => window.removeEventListener('online', handleOnline);
+  }, []);
+
+  return (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <PermissionsProvider>
@@ -50,7 +67,7 @@ const App = () => (
               <Routes>
             {/* Public Routes */}
             <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+            <Route path="/register" element={<Navigate to="/login" replace />} />
             
             {/* Protected Routes */}
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -177,6 +194,24 @@ const App = () => (
               }
             />
             
+            <Route
+              path="/action-plans"
+              element={
+                <ProtectedRoute requiredPermission="view_checklists">
+                  <ActionPlans />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/analytics"
+              element={
+                <ProtectedRoute requiredPermission="view_checklist_review">
+                  <Analytics />
+                </ProtectedRoute>
+              }
+            />
+            
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />
               </Routes>
@@ -186,6 +221,7 @@ const App = () => (
       </PermissionsProvider>
     </AuthProvider>
   </QueryClientProvider>
-);
+  );
+};
 
 export default App;

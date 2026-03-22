@@ -305,6 +305,8 @@ export type Database = {
           name: string
           network_id: string
           updated_at: string | null
+          timefence_start: string | null
+          timefence_end: string | null
         }
         Insert: {
           checklist_type: Database["public"]["Enums"]["checklist_type"]
@@ -315,6 +317,8 @@ export type Database = {
           name: string
           network_id: string
           updated_at?: string | null
+          timefence_start?: string | null
+          timefence_end?: string | null
         }
         Update: {
           checklist_type?: Database["public"]["Enums"]["checklist_type"]
@@ -325,6 +329,8 @@ export type Database = {
           name?: string
           network_id?: string
           updated_at?: string | null
+          timefence_start?: string | null
+          timefence_end?: string | null
         }
         Relationships: [
           {

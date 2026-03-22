@@ -30,8 +30,10 @@ const ChecklistManager = () => {
   const [editingItem, setEditingItem] = useState<{ id: string, title: string } | null>(null);
   const [newItemTitle, setNewItemTitle] = useState("");
   const [isAddingItem, setIsAddingItem] = useState(false);
-  const [isRenamingChecklist, setIsRenamingChecklist] = useState(false);
-  const [newChecklistName, setNewChecklistName] = useState("");
+  const [isEditingChecklist, setIsEditingChecklist] = useState(false);
+  const [editChecklistName, setEditChecklistName] = useState("");
+  const [editTimefenceStart, setEditTimefenceStart] = useState("");
+  const [editTimefenceEnd, setEditTimefenceEnd] = useState("");
 
   useEffect(() => {
     loadChecklists();
@@ -105,17 +107,28 @@ const ChecklistManager = () => {
     }
   };
 
-  const handleRenameChecklist = async () => {
-    if (!selectedChecklist || !newChecklistName.trim()) return;
+  const handleEditChecklist = async () => {
+    if (!selectedChecklist || !editChecklistName.trim()) return;
 
-    const success = await checklistService.updateChecklist(selectedChecklist.id, { name: newChecklistName });
+    // Convert time format to ensure it's compatible if needed, or send as is
+    const success = await checklistService.updateChecklist(selectedChecklist.id, { 
+      name: editChecklistName,
+      timefence_start: editTimefenceStart ? `${editTimefenceStart}:00` : null,
+      timefence_end: editTimefenceEnd ? `${editTimefenceEnd}:00` : null
+    });
+    
     if (success) {
-      toast.success("Checklist renomeado");
-      setSelectedChecklist({ ...selectedChecklist, name: newChecklistName });
-      setIsRenamingChecklist(false);
+      toast.success("Checklist atualizado");
+      setSelectedChecklist({ 
+        ...selectedChecklist, 
+        name: editChecklistName,
+        timefenceStart: editTimefenceStart || null,
+        timefenceEnd: editTimefenceEnd || null
+      });
+      setIsEditingChecklist(false);
       loadChecklists();
     } else {
-      toast.error("Erro ao renomear checklist");
+      toast.error("Erro ao atualizar checklist");
     }
   };
 
@@ -167,10 +180,13 @@ const ChecklistManager = () => {
               </div>
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => {
-                  setNewChecklistName(selectedChecklist.name);
-                  setIsRenamingChecklist(true);
+                  setEditChecklistName(selectedChecklist.name);
+                  // Strip seconds when loading to type="time" input
+                  setEditTimefenceStart(selectedChecklist.timefenceStart?.substring(0, 5) || "");
+                  setEditTimefenceEnd(selectedChecklist.timefenceEnd?.substring(0, 5) || "");
+                  setIsEditingChecklist(true);
                 }}>
-                  <Edit2 className="w-4 h-4 mr-1" /> Renomear
+                  <Edit2 className="w-4 h-4 mr-1" /> Configurações
                 </Button>
                 <Button size="sm" onClick={() => setIsAddingItem(true)}>
                   <Plus className="w-4 h-4 mr-1" /> Novo Item
@@ -249,25 +265,49 @@ const ChecklistManager = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Rename Checklist Dialog */}
-      <Dialog open={isRenamingChecklist} onOpenChange={setIsRenamingChecklist}>
+      {/* Edit Checklist Dialog */}
+      <Dialog open={isEditingChecklist} onOpenChange={setIsEditingChecklist}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Renomear Checklist</DialogTitle>
+            <DialogTitle>Configurações do Checklist</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="name">Nome do Checklist</Label>
               <Input 
                 id="name" 
-                value={newChecklistName}
-                onChange={(e) => setNewChecklistName(e.target.value)}
+                value={editChecklistName}
+                onChange={(e) => setEditChecklistName(e.target.value)}
               />
             </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="time_start">Horário Inicial</Label>
+                <Input 
+                  id="time_start" 
+                  type="time" 
+                  value={editTimefenceStart}
+                  onChange={(e) => setEditTimefenceStart(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="time_end">Horário Final</Label>
+                <Input 
+                  id="time_end" 
+                  type="time" 
+                  value={editTimefenceEnd}
+                  onChange={(e) => setEditTimefenceEnd(e.target.value)}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Se preenchidos, o checklist só poderá ser respondido dentro desta janela de horário.
+            </p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsRenamingChecklist(false)}>Cancelar</Button>
-            <Button onClick={handleRenameChecklist}>Salvar</Button>
+            <Button variant="outline" onClick={() => setIsEditingChecklist(false)}>Cancelar</Button>
+            <Button onClick={handleEditChecklist}>Salvar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

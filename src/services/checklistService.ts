@@ -21,6 +21,8 @@ export type TodayChecklist = {
   scheduledFor: string | null;
   deadline: string | null;
   items: ChecklistItem[];
+  timefenceStart?: string | null;
+  timefenceEnd?: string | null;
 };
 
 type SaveChecklistItemResultInput = {
@@ -115,7 +117,7 @@ export const checklistService = {
       console.log("NETWORK ID USADO NA QUERY:", unit.network_id)
       const { data: checklistsData, error: checklistsError } = await supabase
         .from("checklists")
-        .select("id, name, checklist_type, is_active")
+        .select("id, name, checklist_type, is_active, timefence_start, timefence_end")
         .eq("network_id", unit.network_id)
         .eq("is_active", true);
 
@@ -149,7 +151,7 @@ export const checklistService = {
         // Recarrega checklists após o seed
         const { data: recheck, error: recheckErr } = await supabase
           .from("checklists")
-          .select("id, name, checklist_type, is_active")
+          .select("id, name, checklist_type, is_active, timefence_start, timefence_end")
           .eq("network_id", unit.network_id)
           .eq("is_active", true);
         if (!recheckErr && recheck) {
@@ -352,6 +354,8 @@ export const checklistService = {
           scheduledFor: null,
           deadline: formatDeadlineLabel(),
           items: checklistItems,
+          timefenceStart: (checklist as any).timefence_start,
+          timefenceEnd: (checklist as any).timefence_end,
         };
       });
     } catch (error) {
@@ -435,6 +439,30 @@ export const checklistService = {
       return data?.id ?? null;
     } catch (error) {
       console.error("Erro ao salvar item do checklist:", error);
+      return null;
+    }
+  },
+
+  createActionPlan: async (payload: { response_id: string; unit_id: string; description: string; assigned_to?: string }) => {
+    try {
+      const { data, error } = await supabase
+        .from("checklist_action_plans")
+        .insert({
+          response_id: payload.response_id,
+          unit_id: payload.unit_id,
+          description: payload.description,
+          assigned_to: payload.assigned_to || null,
+        })
+        .select("id")
+        .single();
+
+      if (error) {
+        console.error("Erro ao criar plano de ação:", error);
+        return null;
+      }
+      return data?.id ?? null;
+    } catch (error) {
+      console.error("Erro ao criar plano de ação:", error);
       return null;
     }
   },
@@ -714,7 +742,7 @@ export const checklistService = {
     }
   },
 
-  updateChecklist: async (checklistId: string, updates: { name?: string; is_active?: boolean }) => {
+  updateChecklist: async (checklistId: string, updates: { name?: string; is_active?: boolean; timefence_start?: string | null; timefence_end?: string | null }) => {
     try {
       const { error } = await supabase
         .from("checklists")
@@ -726,6 +754,103 @@ export const checklistService = {
     } catch (error) {
       console.error("Erro ao atualizar checklist:", error);
       return false;
+    }
+  },
+
+  getAnalyticsData: async (unitId: string | undefined, isSuperAdmin: boolean, days = 7) => {
+    try {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - (days - 1));
+      startDate.setHours(0, 0, 0, 0);
+
+      let query = supabase
+        .from("checklist_responses")
+        .select(`
+          id,
+          unit_id,
+          checklist_id,
+          is_complete,
+          started_at,
+          completed_at,
+          checklists ( name, checklist_type )
+        `)
+        .gte("started_at", startDate.toISOString())
+        .order("started_at", { ascending: true });
+
+      if (!isSuperAdmin && unitId) {
+        query = query.eq("unit_id", unitId);
+      }
+
+      const { data: runs, error } = await query;
+      if (error) throw error;
+
+      const allRuns = runs || [];
+
+      // Group by day
+      const dayMap: Record<string, { ok: number; nok: number; total: number }> = {};
+      const typeMap: Record<string, { ok: number; nok: number }> = {
+        abertura: { ok: 0, nok: 0 },
+        praca: { ok: 0, nok: 0 },
+        fechamento: { ok: 0, nok: 0 },
+      };
+
+      for (const run of allRuns) {
+        if (!run.started_at) continue;
+        const day = new Date(run.started_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+        if (!dayMap[day]) dayMap[day] = { ok: 0, nok: 0, total: 0 };
+        dayMap[day].total += 1;
+
+        // Fetch item responses to determine compliance
+        const { data: responses } = await supabase
+          .from("checklist_item_responses")
+          .select("is_checked, notes")
+          .eq("response_id", run.id);
+
+        const itemResponses = responses || [];
+        const hasNok = itemResponses.some((r) => {
+          if (!r.is_checked) return true;
+          try {
+            const parsed = JSON.parse(r.notes || "{}");
+            return parsed.status === "nok";
+          } catch { return false; }
+        });
+
+        if (!hasNok) {
+          dayMap[day].ok += 1;
+        } else {
+          dayMap[day].nok += 1;
+        }
+
+        const type = (run.checklists as any)?.checklist_type;
+        if (type && typeMap[type]) {
+          if (!hasNok) typeMap[type].ok += 1;
+          else typeMap[type].nok += 1;
+        }
+      }
+
+      // Build daily chart data
+      const dailyData = Object.entries(dayMap).map(([day, d]) => ({
+        day,
+        conformes: d.ok,
+        naoConformes: d.nok,
+        conformidade: d.total > 0 ? Math.round((d.ok / d.total) * 100) : 0,
+      }));
+
+      // Build type breakdown
+      const typeBreakdown = Object.entries(typeMap).map(([type, d]) => ({
+        name: type === "abertura" ? "Abertura" : type === "praca" ? "Praça" : "Fechamento",
+        conformes: d.ok,
+        naoConformes: d.nok,
+      }));
+
+      const totalRuns = allRuns.length;
+      const totalComplete = allRuns.filter((r) => r.is_complete).length;
+      const overallCompliance = dailyData.reduce((acc, d) => acc + (d.conformidade || 0), 0) / (dailyData.length || 1);
+
+      return { dailyData, typeBreakdown, totalRuns, totalComplete, overallCompliance: Math.round(overallCompliance) };
+    } catch (error) {
+      console.error("Erro ao buscar analytics:", error);
+      return { dailyData: [], typeBreakdown: [], totalRuns: 0, totalComplete: 0, overallCompliance: 0 };
     }
   },
 

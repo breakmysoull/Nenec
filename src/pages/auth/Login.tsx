@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,25 +16,28 @@ const Login = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Login: Iniciando processo de login...");
     setLoading(true);
 
     try {
-      // Verificar conexão antes de tentar login
       const isConnected = await checkConnection();
       if (!isConnected) {
-        console.error("Login: Falha na verificação de conexão com Supabase");
         toast.error("Erro de conexão com o servidor. Verifique sua internet.");
         setLoading(false);
         return;
       }
 
-      console.log("Login: Chamando signIn...");
-      const { data, error } = await signIn(email, password);
-      console.log("Login: signIn retornou", { data, error });
+      // Detect CPF or Email
+      let loginIdentifier = email;
+      const cleanCpf = email.replace(/\D/g, "");
+      const isCpf = cleanCpf.length === 11 && /^\d+$/.test(cleanCpf);
+      
+      if (isCpf) {
+        loginIdentifier = `${cleanCpf}@codex.internal`;
+      }
+
+      const { data, error } = await signIn(loginIdentifier, password);
 
       if (error) {
-        console.error("Login: Erro no signIn", error);
         toast.error("Erro ao fazer login", {
           description: error.message,
         });
@@ -43,17 +46,13 @@ const Login = () => {
       }
 
       if (data.session) {
-        console.log("Login: Sessão criada com sucesso. Navegando para dashboard...");
         toast.success("Login realizado com sucesso!");
-        // Force navigation
         navigate("/dashboard");
       } else {
-        console.warn("Login: Sucesso mas sem sessão (verifique confirmação de email).");
-        toast.error("Erro ao iniciar sessão. Verifique seu e-mail.");
+        toast.error("Erro ao iniciar sessão. Verifique suas credenciais.");
         setLoading(false);
       }
     } catch (err) {
-      console.error("Login: Exceção não tratada", err);
       toast.error("Ocorreu um erro inesperado ao fazer login.");
       setLoading(false);
     }
@@ -76,11 +75,11 @@ const Login = () => {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">E-mail</Label>
+              <Label htmlFor="email">CPF ou E-mail</Label>
               <Input
                 id="email"
-                type="email"
-                placeholder="seu@email.com"
+                type="text"
+                placeholder="000.000.000-00 ou seu@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -111,10 +110,7 @@ const Login = () => {
             </Button>
           </form>
           <div className="mt-6 text-center text-sm">
-            <span className="text-muted-foreground">Não tem uma conta? </span>
-            <Link to="/register" className="text-primary font-medium hover:underline">
-              Criar conta
-            </Link>
+            <span className="text-muted-foreground">Fale com o administrador para obter acesso.</span>
           </div>
         </CardContent>
       </Card>

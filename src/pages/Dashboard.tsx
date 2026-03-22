@@ -3,25 +3,34 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/contexts/PermissionsContext";
 import { useStockAlerts } from "@/hooks/useStockAlerts";
 import { useTrainings } from "@/contexts/TrainingsContext";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { AdminDashboard } from "@/components/dashboard/AdminDashboard";
 import { OperationalDashboard } from "@/components/dashboard/OperationalDashboard";
 import { hasPermission } from "@/lib/permissions";
+import { useNavigate } from "react-router-dom";
 
 const Dashboard = () => {
   const { user } = useAuth();
   const { role, baseRole, adminView } = usePermissions();
   const { count: criticalStockCount } = useStockAlerts();
   const { trainings } = useTrainings();
+  const navigate = useNavigate();
+
+  // Trainee users go directly to training — no dashboard for them
+  useEffect(() => {
+    if (role === 'trainee') {
+      navigate('/training', { replace: true });
+    }
+  }, [role, navigate]);
   
   const firstName = user?.user_metadata?.full_name?.split(' ')[0] || 'Usuário';
   
   // Use permissions to determine view
   // If adminView is active (non-null), we show Admin Dashboard
   // Otherwise we check if they are a manager/admin by role to possibly default them (though adminView usually handles the toggle)
-  const isManager = hasPermission(role || 'operator', 'manage_orders'); 
-  const isAdmin = hasPermission(role || 'operator', 'manage_settings');
   const isAdminBase = baseRole === "admin" || baseRole === "super_admin";
+  const isManager = hasPermission(role || 'operator', 'manage_orders'); 
+  const isAdmin = isAdminBase || hasPermission(role || 'operator', 'manage_settings');
 
   // Calculate pending trainings for the user (or generally)
   // For now using a simple calculation or mock
@@ -46,7 +55,7 @@ const Dashboard = () => {
 
   return (
     <AppLayout>
-      <div className="space-y-6">
+      <div className="p-4 space-y-6">
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-bold tracking-tight">
             Olá, {firstName}!

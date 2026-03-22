@@ -10,7 +10,8 @@ import {
   Settings,
   ArrowRight,
   Shield,
-  CheckCircle2
+  CheckCircle2,
+  TrendingUp
 } from "lucide-react";
 import { StatCard } from "@/components/ui/stat-card";
 import { ModuleCard } from "@/components/ui/module-card";
@@ -109,6 +110,14 @@ export const AdminDashboard = ({ stats, isAdmin }: AdminDashboardProps) => {
                   <Settings className="w-4 h-4 mr-2" />
                   Editar Checklists
                 </Button>
+                <Button variant="default" className="w-full justify-start mt-2 bg-destructive hover:bg-destructive/90 text-destructive-foreground" onClick={() => navigate("/action-plans")}>
+                  <AlertTriangle className="w-4 h-4 mr-2" />
+                  Planos de Ação (Tratativas)
+                </Button>
+                <Button variant="outline" className="w-full justify-start" onClick={() => navigate("/analytics")}>
+                  <TrendingUp className="w-4 h-4 mr-2" />
+                  Analytics de Conformidade
+                </Button>
               </CardContent>
             </Card>
 
@@ -157,101 +166,5 @@ export const AdminDashboard = ({ stats, isAdmin }: AdminDashboardProps) => {
         </section>
     </div>
   );
-};              </CardHeader>
-              <CardContent className="space-y-2">
-                <Button variant="outline" className="w-full justify-between group" onClick={() => navigate("/checklists/manage")}>
-                  Gerenciar Checklists
-                  <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                </Button>
-                <Button variant="outline" className="w-full justify-between group" onClick={() => navigate("/checklists/review")}>
-                  Auditar Respostas
-                  <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Gestão de Equipe e Treino */}
-            <Card className="border-l-4 border-l-info/50">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Users className="w-5 h-5 text-info" />
-                  Equipe & Treino
-                </CardTitle>
-                <CardDescription>Capacitação e Acessos</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Button variant="outline" className="w-full justify-between group" onClick={() => navigate("/training/manage")}>
-                  Gerenciar Treinamentos
-                  <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                </Button>
-                <Button variant="outline" className="w-full justify-between group" onClick={() => navigate("/users")}>
-                  Gerenciar Usuários
-                  <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Gestão de Estoque e Rede */}
-            <Card className="border-l-4 border-l-warning/50">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Building2 className="w-5 h-5 text-warning" />
-                  Estoque & Rede
-                </CardTitle>
-                <CardDescription>Produtos e Configurações</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Button variant="outline" className="w-full justify-between group" onClick={() => navigate("/stock")}>
-                  Gestão de Estoque
-                  <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                </Button>
-                {isAdmin && (
-                  <Button variant="outline" className="w-full justify-between group" onClick={() => navigate("/units")}>
-                    Unidades e Cardápios
-                    <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </section>
-
-        {/* 3. Acesso Rápido aos Módulos (Visualização em Grade) */}
-        <section className="space-y-4">
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-            Acesso Rápido aos Módulos
-          </h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <ModuleCard
-              title="Estoque"
-              description="Inventário"
-              icon={Package}
-              to="/stock"
-              variant="compact"
-            />
-            <ModuleCard
-              title="Pedidos"
-              description="Compras"
-              icon={ShoppingCart}
-              to="/orders"
-              variant="compact"
-            />
-            <ModuleCard
-              title="Checklists"
-              description="Execução"
-              icon={ClipboardCheck}
-              to="/checklists"
-              variant="compact"
-            />
-             <ModuleCard
-              title="Treinamentos"
-              description="Minha trilha"
-              icon={GraduationCap}
-              to="/training"
-              variant="compact"
-            />
-          </div>
-        </section>
-    </div>
-  );
 };
+

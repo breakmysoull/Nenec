@@ -4,20 +4,29 @@ import {
   Package, 
   ClipboardCheck, 
   ShoppingCart,
-  GraduationCap 
+  GraduationCap,
+  Users as UsersIcon
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Permission, hasPermission } from "@/lib/permissions";
+import { usePermissions } from "@/contexts/PermissionsContext";
 
-const navItems = [
-  { icon: LayoutDashboard, label: "Início", path: "/dashboard" },
-  { icon: Package, label: "Estoque", path: "/stock" },
-  { icon: ShoppingCart, label: "Pedidos", path: "/orders" },
-  { icon: ClipboardCheck, label: "Checklists", path: "/checklists" },
-  { icon: GraduationCap, label: "Treino", path: "/training" },
+const allNavItems = [
+  { icon: LayoutDashboard, label: "Início", path: "/dashboard", permission: "view_dashboard" as Permission },
+  { icon: Package, label: "Estoque", path: "/stock", permission: "view_stock" as Permission },
+  { icon: UsersIcon, label: "Equipe", path: "/users", permission: "view_users" as Permission },
+  { icon: ClipboardCheck, label: "Checklists", path: "/checklists", permission: "view_checklists" as Permission },
+  { icon: GraduationCap, label: "Treino", path: "/training", permission: "view_training" as Permission },
 ];
 
 export const BottomNav = () => {
   const location = useLocation();
+  const { role } = usePermissions();
+
+  // Filter based on permissions
+  const navItems = allNavItems.filter(item => 
+    hasPermission(role || 'trainee', item.permission)
+  );
 
   return (
     <nav className="bottom-nav safe-area-bottom">
