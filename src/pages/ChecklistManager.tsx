@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { supabase } from "@/lib/supabase";
 
 const ChecklistManager = () => {
   const { activeUnitId } = usePermissions();
@@ -34,6 +35,7 @@ const ChecklistManager = () => {
   const [editChecklistName, setEditChecklistName] = useState("");
   const [editTimefenceStart, setEditTimefenceStart] = useState("");
   const [editTimefenceEnd, setEditTimefenceEnd] = useState("");
+  const [isRestoring, setIsRestoring] = useState(false);
 
   useEffect(() => {
     loadChecklists();
@@ -132,6 +134,32 @@ const ChecklistManager = () => {
     }
   };
 
+  const handleRestoreDefaults = async () => {
+    if (!activeUnitId) return;
+    try {
+      setLoading(true);
+      setIsRestoring(false);
+      
+      const { data: unit } = await supabase
+        .from("units")
+        .select("network_id")
+        .eq("id", activeUnitId)
+        .single();
+        
+      if (unit?.network_id) {
+        await checklistService.seedOperationalChecklists(unit.network_id);
+        toast.success("Checklists padrões restaurados com sucesso!");
+        await loadChecklists();
+      } else {
+        toast.error("Erro ao identificar a rede da unidade.");
+      }
+    } catch (error) {
+      toast.error("Erro ao restaurar checklists");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <AppLayout title="Gerenciar Checklists">
@@ -149,6 +177,14 @@ const ChecklistManager = () => {
         subtitle={selectedChecklist ? `Editando: ${selectedChecklist.name}` : "Selecione um checklist para editar"}
         showBack
         onBack={selectedChecklist ? () => setSelectedChecklist(null) : undefined}
+        actions={
+          !selectedChecklist && (
+            <Button size="sm" variant="outline" onClick={() => setIsRestoring(true)}>
+              <ClipboardCheck className="w-4 h-4 mr-1" />
+              Restaurar Padrões
+            </Button>
+          )
+        }
       />
 
       <div className="p-4 space-y-4">
@@ -308,6 +344,24 @@ const ChecklistManager = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditingChecklist(false)}>Cancelar</Button>
             <Button onClick={handleEditChecklist}>Salvar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Restore Defaults Dialog */}
+      <Dialog open={isRestoring} onOpenChange={setIsRestoring}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Restaurar Checklists Padrão</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="text-sm text-muted-foreground">
+              Esta ação irá recrear todos os checklists padrões do sistema (ex: BOWL, POKE) caso eles não existam ou tenham sido apagados incorretamente.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsRestoring(false)}>Cancelar</Button>
+            <Button onClick={handleRestoreDefaults}>Confirmar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

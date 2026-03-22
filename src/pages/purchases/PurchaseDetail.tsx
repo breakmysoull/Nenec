@@ -43,11 +43,6 @@ interface PurchaseOrderDetail {
   delivered_at?: string;
   notes?: string;
   unit_id: string;
-  suppliers: {
-    name: string;
-    email?: string | null;
-    phone?: string | null;
-  };
   profiles_created: {
     full_name: string | null;
   };
@@ -83,13 +78,12 @@ const PurchaseDetail = () => {
       setLoading(true);
       
       const { data, error } = await supabase
-        .from('purchase_orders' as never)
+        .from('orders')
         .select(`
           *,
-          suppliers (name, email, phone),
-          profiles_created:profiles!purchase_orders_created_by_fkey (full_name),
-          profiles_approved:profiles!purchase_orders_approved_by_fkey (full_name),
-          items:purchase_order_items (
+          profiles_created:profiles!orders_requested_by_fkey (full_name),
+          profiles_approved:profiles!orders_approved_by_fkey (full_name),
+          items:order_items (
             id,
             quantity_requested,
             unit_price,
@@ -145,7 +139,7 @@ const PurchaseDetail = () => {
         }
 
         const { error } = await supabase
-          .from('purchase_orders' as never)
+          .from('orders')
           .update(updates)
           .eq('id', order.id);
 
@@ -251,13 +245,8 @@ const PurchaseDetail = () => {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-1">
-                <p className="text-sm font-medium text-muted-foreground">Fornecedor</p>
-                <p className="font-semibold text-lg">{order.suppliers?.name}</p>
-                {(order.suppliers?.email || order.suppliers?.phone) && (
-                  <p className="text-sm text-muted-foreground">
-                    {order.suppliers.email} • {order.suppliers.phone}
-                  </p>
-                )}
+                <p className="text-sm font-medium text-muted-foreground">Tipo</p>
+                <p className="font-semibold text-lg">Pedido Interno de Estoque</p>
               </div>
               
               <div className="space-y-1">

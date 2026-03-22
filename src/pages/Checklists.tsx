@@ -22,6 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerFooter } from "@/components/ui/drawer";
@@ -92,10 +93,8 @@ const Checklists = () => {
   const { user } = useAuth();
   const { activeUnitId, role } = usePermissions();
   const navigate = useNavigate();
-  const [checklists, setChecklists] = useState<TodayChecklist[]>([]);
-  
+  const queryClient = useQueryClient();
   const isAdmin = isManagerOrAbove(role);
-  const [loading, setLoading] = useState(true);
   const [activeChecklistId, setActiveChecklistId] = useState<string | null>(null);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
@@ -117,30 +116,15 @@ const Checklists = () => {
   const [nokPhoto, setNokPhoto] = useState<string | null>(null);
   const nokFileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadChecklists = async () => {
-      if (!activeUnitId) {
-        setChecklists([]);
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      const data = await checklistService.getTodayChecklists(activeUnitId);
-      if (!cancelled) {
-        setChecklists(data);
-        setLoading(false);
-      }
-    };
-
-    loadChecklists();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeUnitId]);
+  const { data: checklists = [], isLoading: loading } = useQuery({
+    queryKey: ['checklists', 'today', activeUnitId],
+    queryFn: async () => {
+      if (!activeUnitId) return [];
+      return await checklistService.getTodayChecklists(activeUnitId);
+    },
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    retry: false,
+  });
 
   useEffect(() => {
     if (checklists.length === 0 || activeChecklistId) return;
@@ -351,13 +335,15 @@ const Checklists = () => {
     }
 
     if (activeChecklist) {
-      setChecklists((prev) =>
-        prev.map((checklist) =>
-          checklist.id === activeChecklist.id
-            ? { ...checklist, status: "completed", completedItems: checklist.totalItems }
-            : checklist
-        )
-      );
+      queryClient.setQueryData(['checklists', 'today', activeUnitId], (old: TodayChecklist[] | undefined) => {
+        if (!old) return [];
+        return old.map(c => 
+          c.id === activeChecklist.id 
+            ? { ...c, status: "completed", completedItems: c.totalItems } 
+            : c
+        );
+      });
+      queryClient.invalidateQueries({ queryKey: ['checklists', 'today', activeUnitId] });
     }
 
     setCompleted(true);

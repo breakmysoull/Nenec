@@ -86,6 +86,7 @@ export const checklistService = {
         file_url: photoUrl,
         uploaded_by: userId,
         file_type: "image",
+        item_response_id: null as any,
       });
       if (error) return false;
       return true;
@@ -145,21 +146,6 @@ export const checklistService = {
       const hasBowl = checklists.some(c => c.name.includes("BOWL"));
       console.log("TEM BOWL NA LISTA?", hasBowl);
 
-      if (!hasBowl) {
-        console.log("BOWL não encontrado! Tentando forçar o seed...");
-        await checklistService.seedOperationalChecklists(unit.network_id);
-        // Recarrega checklists após o seed
-        const { data: recheck, error: recheckErr } = await supabase
-          .from("checklists")
-          .select("id, name, checklist_type, is_active, timefence_start, timefence_end")
-          .eq("network_id", unit.network_id)
-          .eq("is_active", true);
-        if (!recheckErr && recheck) {
-          console.log("Checklists após seed forçado:", recheck.map(c => c.name));
-          // Atualiza a variável local para o restante da função
-          checklists = recheck;
-        }
-      }
 
       if (checklists.length === 0) {
         const { data: all } = await supabase.from("checklists").select("*")
@@ -296,41 +282,7 @@ export const checklistService = {
           itemsByChecklist.set(cid, arr);
         });
 
-        // Verificação final e Auto-Seed se ainda houver checklists vazios
-        const stillEmptyIds = (checklists || [])
-          .map((c) => c.id)
-          .filter((id) => (itemsByChecklist.get(id) || []).length === 0);
-
-        if (stillEmptyIds.length > 0) {
-          console.log("Checklists ainda vazios após fallback. Tentando auto-seed:", stillEmptyIds);
-          // Tenta rodar o seed para garantir que os itens existam
-          await checklistService.seedOperationalChecklists(unit.network_id);
-          
-          // Tenta buscar novamente os itens para os checklists que estavam vazios
-          const finalFallback = await Promise.all(
-            stillEmptyIds.map((id) =>
-              supabase
-                .from("checklist_items")
-                .select("id, title, item_type, required, order_index, checklist_id")
-                .eq("checklist_id", id)
-                .order("order_index", { ascending: true })
-            )
-          );
-          
-          finalFallback.forEach((res, idx) => {
-            const cid = stillEmptyIds[idx];
-            const arr = (res.data || []).map((it) => ({
-              id: it.id,
-              title: it.title,
-              type: mapItemType(it.item_type as ChecklistItemType),
-              isRequired: it.required ?? true,
-            }));
-            if (arr.length > 0) {
-              itemsByChecklist.set(cid, arr);
-              console.log(`Itens recuperados após seed para checklist ${cid}: ${arr.length}`);
-            }
-          });
-        }
+        // Removido o Auto-Seed problemático aqui. Se os itens continuam vazios, ficam vazios. Em caso de bugs, devem ser recriados no gerenciador.
       }
 
       return (checklists || []).map((checklist) => {
@@ -445,14 +397,14 @@ export const checklistService = {
 
   createActionPlan: async (payload: { response_id: string; unit_id: string; description: string; assigned_to?: string }) => {
     try {
-      const { data, error } = await supabase
-        .from("checklist_action_plans")
+      const { data, error } = await (supabase
+        .from("checklist_action_plans" as any)
         .insert({
           response_id: payload.response_id,
           unit_id: payload.unit_id,
           description: payload.description,
           assigned_to: payload.assigned_to || null,
-        })
+        } as any) as any)
         .select("id")
         .single();
 

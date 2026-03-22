@@ -5,7 +5,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Plus, Package, ArrowDown, ArrowUp, Search, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { usePermissions } from "@/contexts/PermissionsContext";
@@ -31,24 +32,22 @@ type StockViewRow = {
 const Stock = () => {
   const { roles, isSuperAdmin, activeUnitId } = usePermissions();
   const [search, setSearch] = useState("");
-  const [stockItems, setStockItems] = useState<StockItem[]>([]);
-  const [loading, setLoading] = useState(true);
 
   // Get current unit from roles (fallback if no activeUnitId)
   const currentUnitId = roles?.[0]?.unit_id;
+  const queryClient = useQueryClient();
 
-  const fetchStock = useCallback(async () => {
-    try {
-      setLoading(true);
+  const { data: stockItems = [], isLoading: loading } = useQuery({
+    queryKey: ['stock', activeUnitId, currentUnitId, isSuperAdmin],
+    queryFn: async () => {
+      if (!activeUnitId && !currentUnitId && !isSuperAdmin) {
+        return [];
+      }
       
-      // Step 3.3.4: Use clean view for reading stock
       let query = supabase
         .from('vw_unit_stock' as never)
         .select('*');
 
-      // Filter by unit if not super admin or if super admin selected a unit
-      // Note: activeUnitId comes from AuthContext, currentUnitId comes from roles.
-      // We should prefer activeUnitId for the multi-unit selector logic.
       if (activeUnitId) {
         query = query.eq('unit_id', activeUnitId);
       } else if (currentUnitId) {
@@ -57,38 +56,28 @@ const Stock = () => {
       
       const { data, error } = await query;
 
-      if (error) throw error;
+      if (error) {
+        const maybeError = error as { code?: string };
+        if (maybeError?.code === '42P01') {
+           toast.error("View 'vw_unit_stock' não encontrada. Verifique o banco de dados.");
+        } else {
+           toast.error("Erro ao carregar estoque");
+        }
+        throw error;
+      }
 
       const rows = (data || []) as StockViewRow[];
-      const formattedData = rows.map((item) => ({
+      return rows.map((item) => ({
         id: item.ingredient_id || item.id || "",
         name: item.name || "",
         unit_measure: item.unit_measure || "",
         min_stock: item.min_stock || 0,
         current_stock: item.current_stock || 0,
       }));
-
-      setStockItems(formattedData);
-    } catch (error) {
-      const maybeError = error as { code?: string };
-      // Fallback for development if view is missing
-      if (maybeError?.code === '42P01') {
-         toast.error("View 'vw_unit_stock' não encontrada. Verifique o banco de dados.");
-      } else {
-         toast.error("Erro ao carregar estoque");
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [activeUnitId, currentUnitId]);
-
-  useEffect(() => {
-    if (activeUnitId || currentUnitId || isSuperAdmin) {
-      fetchStock();
-    } else {
-      setLoading(false);
-    }
-  }, [activeUnitId, currentUnitId, isSuperAdmin, fetchStock]);
+    },
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    retry: false,
+  });
 
   const registerStockMovement = async (ingredientId: string, quantity: number, type: 'compra' | 'producao' | 'venda' | 'perda' | 'ajuste') => {
     if (!currentUnitId) {
@@ -108,7 +97,7 @@ const Stock = () => {
       if (error) throw error;
 
       toast.success("Movimentação registrada com sucesso");
-      fetchStock(); // Refresh list
+      queryClient.invalidateQueries({ queryKey: ['stock'] });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erro ao registrar movimentação";
       toast.error("Erro ao registrar movimentação: " + message);

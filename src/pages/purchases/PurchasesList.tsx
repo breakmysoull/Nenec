@@ -13,16 +13,12 @@ import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { OrderStatus } from "@/types/database";
 
-// Interface for purchase list item
 interface PurchaseOrder {
   id: string;
   status: OrderStatus;
   created_at: string;
-  created_by: string;
+  requested_by: string;
   unit_id: string;
-  suppliers: {
-    name: string;
-  };
   profiles: {
     full_name: string | null;
     email: string;
@@ -44,17 +40,14 @@ const Purchases = () => {
       setLoading(true);
       
       let query = supabase
-        .from('purchase_orders')
+        .from('orders')
         .select(`
           id,
           status,
           created_at,
-          created_by,
+          requested_by,
           unit_id,
-          suppliers (
-            name
-          ),
-          profiles:profiles!purchase_orders_created_by_fkey (
+          profiles:profiles!orders_requested_by_fkey (
             full_name,
             email
           )
@@ -163,7 +156,7 @@ const Purchases = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-semibold text-base">
-                          {order.suppliers?.name || "Fornecedor Desconhecido"}
+                          Pedido de Estoque
                         </span>
                         <StatusBadge status={order.status} />
                       </div>
