@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
+import { stockService } from '@/services/stockService';
 import { usePermissions } from '@/contexts/PermissionsContext';
 
 export interface StockAlert {
@@ -29,28 +29,14 @@ export function useStockAlerts() {
         return [];
       }
 
-      let query = supabase
-        .from('vw_unit_stock' as never)
-        .select('*');
+      const data = await stockService.getInventory(normalizedUnitId || undefined);
 
-      if (normalizedUnitId) {
-        query = query.eq('unit_id', normalizedUnitId);
-      }
-
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('Error fetching stock alerts from view:', error);
-        throw error;
-      }
-
-      // Filter for low stock
-      return ((data || []) as StockAlertRow[])
+      return data
         .map((item) => ({
           id: item.id || "",
-          name: item.name || "",
-          current_stock: Number(item.current_stock || 0),
-          min_stock: Number(item.min_stock || 0),
+          name: item.ingredient_name || "",
+          current_stock: Number(item.stock || 0),
+          min_stock: Number(item.minimum_stock || 0),
           unit_measure: item.unit_measure || "",
         }))
         .filter((item) => item.current_stock <= item.min_stock && item.min_stock > 0);

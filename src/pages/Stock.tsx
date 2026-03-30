@@ -7,7 +7,7 @@ import { Plus, Package, ArrowDown, ArrowUp, Search, Loader2 } from "lucide-react
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/lib/supabase";
+import { stockService } from "@/services/stockService";
 import { toast } from "sonner";
 import { usePermissions } from "@/contexts/PermissionsContext";
 
@@ -44,35 +44,15 @@ const Stock = () => {
         return [];
       }
       
-      let query = supabase
-        .from('vw_unit_stock' as never)
-        .select('*');
+      const targetUnitId = activeUnitId || currentUnitId || undefined;
+      const data = await stockService.getInventory(targetUnitId);
 
-      if (activeUnitId) {
-        query = query.eq('unit_id', activeUnitId);
-      } else if (currentUnitId) {
-        query = query.eq('unit_id', currentUnitId);
-      }
-      
-      const { data, error } = await query;
-
-      if (error) {
-        const maybeError = error as { code?: string };
-        if (maybeError?.code === '42P01') {
-           toast.error("View 'vw_unit_stock' não encontrada. Verifique o banco de dados.");
-        } else {
-           toast.error("Erro ao carregar estoque");
-        }
-        throw error;
-      }
-
-      const rows = (data || []) as StockViewRow[];
-      return rows.map((item) => ({
-        id: item.ingredient_id || item.id || "",
-        name: item.name || "",
+      return data.map((item) => ({
+        id: item.id || "",
+        name: item.ingredient_name || "",
         unit_measure: item.unit_measure || "",
-        min_stock: item.min_stock || 0,
-        current_stock: item.current_stock || 0,
+        min_stock: item.minimum_stock || 0,
+        current_stock: item.stock || 0,
       }));
     },
     staleTime: 1000 * 60 * 5, // 5 minutes
@@ -86,15 +66,13 @@ const Stock = () => {
     }
 
     try {
-      // ETAPA 7: USAR RPC (MOVIMENTAÇÃO DE ESTOQUE)
-      const { error } = await supabase.rpc('register_stock_movement' as never, {
-        p_unit_id: currentUnitId,
-        p_ingredient_id: ingredientId,
-        p_quantity: quantity,
-        p_type: type,
+      const networkId = roles?.[0]?.network_id || 'codex_network_default';
+      await stockService.recordMovement(networkId, currentUnitId, {
+        unit_id: currentUnitId,
+        ingredient_name: String(ingredientId),
+        quantity: quantity,
+        type: (type === 'compra' || type === 'producao' || type === 'ajuste') ? 'IN' : 'OUT'
       });
-
-      if (error) throw error;
 
       toast.success("Movimentação registrada com sucesso");
       queryClient.invalidateQueries({ queryKey: ['stock'] });

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+
 import { AppRole, Unit } from "@/types/database";
 import { normalizeRole } from "@/lib/permissions";
 import { useAuth } from "@/contexts/AuthContext";
@@ -10,6 +10,7 @@ interface PermissionsContextType {
   roles: UserRoleRow[] | null;
   units: Unit[];
   activeUnitId: string | null;
+  activeNetworkId: string | null;
   setActiveUnitId: (id: string | null) => void;
   adminView: AdminView | null;
   setAdminView: (view: AdminView | null) => void;
@@ -31,7 +32,7 @@ type UnitRow = Unit & {
 
 type AdminView = "OPERATOR" | "MANAGER";
 
-const SUPER_ADMIN_EMAILS = ["admin@codex.app", "erycryto@gmail.com"];
+const SUPER_ADMIN_EMAILS = ["admin@codex.app", "erycryto@gmail.com", "erick@nectar.com"];
 const ADMIN_VIEW_STORAGE_KEY = "codex_admin_view";
 const PERMISSIONS_CACHE_KEY = "codex_permissions_cache_v1";
 
@@ -50,6 +51,7 @@ const PermissionsContext = createContext<PermissionsContextType>({
   roles: null,
   units: [],
   activeUnitId: null,
+  activeNetworkId: null,
   setActiveUnitId: () => {},
   adminView: null,
   setAdminView: () => {},
@@ -76,14 +78,14 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const stored = localStorage.getItem(PERMISSIONS_CACHE_KEY);
       if (!stored) return null;
       const parsed = JSON.parse(stored) as PermissionsCache;
-      if (parsed.userId !== user.id) return null;
+      if (parsed.userId !== user.uid) return null;
       return parsed;
     } catch {
       return null;
     }
   };
 
-  const cache = useMemo(() => getCache(), [user?.id]);
+  const cache = useMemo(() => getCache(), [user?.uid]);
 
   const [baseRole, setBaseRole] = useState<AppRole | null>(() => cache?.baseRole || null);
   const [roles, setRoles] = useState<UserRoleRow[] | null>(() => cache?.roles || null);
@@ -111,6 +113,17 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const email = user?.email;
     return email ? SUPER_ADMIN_EMAILS.includes(email) : false;
   }, [user?.email]);
+
+  const activeNetworkId = useMemo(() => {
+    if (!roles || roles.length === 0) return null;
+    if (activeUnitId) {
+      const matchRole = roles.find(r => r.unit_id === activeUnitId);
+      if (matchRole?.network_id) return matchRole.network_id;
+      const u = units.find(u => u.id === activeUnitId) as UnitRow;
+      if (u?.network_id) return u.network_id;
+    }
+    return roles.find(r => r.network_id)?.network_id || null;
+  }, [roles, units, activeUnitId]);
 
   useEffect(() => {
     if (!user) {
@@ -143,32 +156,30 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
           setTimeout(() => resolve({ data: null, error: new Error("Timeout") }), 3000)
         );
 
-        const rolesPromise = supabase
-          .from("user_roles")
-          .select(
-            `
-              role,
-              network_id,
-              unit_id,
-              units:unit_id (
-                id,
-                name,
-                is_active
-              )
-            `
-          )
-          .eq("user_id", user.id);
+        const { getDoc, doc, collectionGroup, getDocs, query: fbQuery, where } = await import("firebase/firestore");
+        const { db } = await import("@/lib/firebase");
+        
+        let fetchedRoles: UserRoleRow[] = [];
 
-        const { data: rolesData, error: rolesError } = (await Promise.race([
-          rolesPromise,
-          timeoutPromise,
-        ])) as { data: UserRoleRow[] | null; error: Error | null };
-
-        if (rolesError) {
-          throw rolesError;
+        try {
+          // Firebase Role Fetch
+          const userDoc = await getDoc(doc(db, "user_roles", user.uid));
+          if (userDoc.exists()) {
+            fetchedRoles = userDoc.data().roles || [];
+          }
+        } catch (fbError) {
+          console.error("Firestore user_roles schema not yet generated or missing permissions.");
         }
 
-        const fetchedRoles = rolesData || [];
+        // Auto-grant full access to super admins even if Firestore role doc is missing
+        if (emailIsSuperAdmin && fetchedRoles.length === 0) {
+          fetchedRoles = [{
+            role: "super_admin",
+            network_id: "codex_network_default",
+            unit_id: null
+          }];
+        }
+
         if (!cancelled) {
           setRoles(fetchedRoles);
         }
@@ -181,41 +192,54 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
           if (r.units && !seenUnitIds.has(r.units.id)) {
             fetchedUnits.push(r.units);
             seenUnitIds.add(r.units.id);
+          } else if (r.unit_id && !seenUnitIds.has(r.unit_id)) {
+             // Fallback to fetch single units later if no join
+             seenUnitIds.add(r.unit_id);
           }
-          if (!r.unit_id && r.network_id) {
+          if (r.network_id) {
             seenNetworkIds.add(r.network_id);
           }
         });
 
-        if (seenNetworkIds.size > 0) {
-          const { data: networkUnits, error: networkUnitsError } = await supabase
-            .from("units")
-            .select("id, name, is_active, network_id")
-            .in("network_id", Array.from(seenNetworkIds))
-            .eq("is_active", true);
+        if (seenNetworkIds.size > 0 || seenUnitIds.size > 0) {
+          try {
+            const unitsQuery = fbQuery(collectionGroup(db, 'units'), where("is_active", "==", true));
+            const unitsSnapshot = await getDocs(unitsQuery);
+            const allActiveUnits = unitsSnapshot.docs.map(d => ({
+              id: d.id,
+              network_id: d.ref.parent.parent?.id,
+              ...(d.data() as any)
+            })) as UnitRow[];
 
-          if (networkUnitsError) {
-            throw networkUnitsError;
+            const filteredUnits = allActiveUnits.filter(u => 
+              (u.network_id && seenNetworkIds.has(u.network_id)) || seenUnitIds.has(u.id)
+            );
+
+            filteredUnits.forEach(u => {
+              if (!fetchedUnits.find(fu => fu.id === u.id)) {
+                fetchedUnits.push(u);
+              }
+            });
+          } catch (err) {
+            console.error("Erro ao buscar units no Firestore:", err);
           }
-
-          (networkUnits || []).forEach((u: UnitRow) => {
-            if (!seenUnitIds.has(u.id)) {
-              fetchedUnits.push(u);
-              seenUnitIds.add(u.id);
-            }
-          });
         }
 
         if (emailIsSuperAdmin) {
-          const { data: allUnits, error: allUnitsError } = await supabase
-            .from("units")
-            .select("id, name, is_active");
-
-          if (allUnitsError) {
-            throw allUnitsError;
+          try {
+            const allUnitsQuery = fbQuery(collectionGroup(db, 'units'));
+            const unitsSnapshot = await getDocs(allUnitsQuery);
+            const allActiveUnits = unitsSnapshot.docs.map(d => ({
+              id: d.id,
+              network_id: d.ref.parent.parent?.id,
+              ...(d.data() as any)
+            })) as UnitRow[];
+            
+            fetchedUnits = allActiveUnits;
+          } catch (err) {
+            console.error("Erro ao buscar todas as units:", err);
+            throw err;
           }
-
-          fetchedUnits = allUnits || [];
         }
 
         if (!cancelled) {
@@ -243,7 +267,7 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
           // Save to cache
           const newCache: PermissionsCache = {
-            userId: user.id,
+            userId: user.uid,
             baseRole: finalBaseRole as AppRole,
             roles: fetchedRoles,
             units: fetchedUnits,
@@ -314,6 +338,7 @@ export const PermissionsProvider: React.FC<{ children: React.ReactNode }> = ({ c
         roles,
         units,
         activeUnitId,
+        activeNetworkId,
         setActiveUnitId: handleSetActiveUnitId,
         adminView,
         setAdminView,

@@ -1,8 +1,8 @@
+import { db } from "@/lib/firebase";
+import { collectionGroup, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, collection } from "firebase/firestore";
 
-import { supabase } from "@/lib/supabase";
-import { Database } from "@/integrations/supabase/types";
-
-export type TrainingStatus = Database["public"]["Enums"]["training_status"];
+// The types should match what was exported before, since other files depend on them.
+export type TrainingStatus = 'pendente' | 'em_andamento' | 'concluido';
 
 export interface Training {
   id: string;
@@ -37,122 +37,91 @@ export interface TrainingDetails extends Training {
 
 export const trainingService = {
   getUserTrainings: async (userId: string): Promise<Training[]> => {
-    const { data, error } = await supabase
-      .rpc('get_user_required_trainings', {
-        p_user_id: userId
-      });
+    const trainingsSnap = await getDocs(collectionGroup(db, 'trainings'));
+    
+    const progressRef = collection(db, "users", userId, "training_progress");
+    const progressSnap = await getDocs(progressRef);
+    const progressMap = new Map();
+    progressSnap.forEach(d => progressMap.set(d.id, d.data()));
 
-    if (error) {
-      console.error('Error fetching user trainings:', error);
-      throw error;
-    }
-
-    return data as Training[];
+    return trainingsSnap.docs.map(d => {
+      const data = d.data();
+      const p = progressMap.get(d.id);
+      return {
+        id: d.id,
+        name: data.name || 'Sem nome',
+        description: data.description || null,
+        is_mandatory: data.is_mandatory || false,
+        status: p ? p.status : 'pendente',
+        progress: p ? p.score : 0,
+        type: data.is_mandatory ? 'obrigatorio' : 'opcional'
+      } as Training;
+    });
   },
 
   getTrainingDetails: async (trainingId: string, userId: string): Promise<TrainingDetails> => {
-    // 1. Get Training Info
-    const { data: training, error: tError } = await supabase
-      .from('trainings')
-      .select('*')
-      .eq('id', trainingId)
-      .single();
+    const trainingsSnap = await getDocs(collectionGroup(db, 'trainings'));
+    const trainingDoc = trainingsSnap.docs.find(d => d.id === trainingId);
     
-    if (tError) throw tError;
+    if (!trainingDoc) throw new Error("Training not found");
+    const trainingData = trainingDoc.data();
+    
+    const videosRef = collection(trainingDoc.ref, "videos");
+    const videosSnap = await getDocs(videosRef);
+    const videos = videosSnap.docs.map(d => ({id: d.id, ...d.data()})) as TrainingVideo[];
 
-    // 2. Get Videos
-    const { data: videos, error: vError } = await supabase
-      .from('training_videos')
-      .select('*')
-      .eq('training_id', trainingId)
-      .order('order_index');
+    const stepsRef = collection(trainingDoc.ref, "steps");
+    const stepsSnap = await getDocs(stepsRef);
+    const steps = stepsSnap.docs.map(d => ({id: d.id, ...d.data()})) as TrainingStep[];
 
-    if (vError) throw vError;
+    const pDoc = await getDoc(doc(db, "users", userId, "training_progress", trainingId));
+    const pData = pDoc.exists() ? pDoc.data() : null;
 
-    // 3. Get Steps
-    const { data: steps, error: sError } = await supabase
-      .from('training_steps')
-      .select('*')
-      .eq('training_id', trainingId)
-      .order('order_index');
-
-    if (sError) throw sError;
-
-    // 4. Get User Progress (completed steps)
-    const { data: userSteps, error: usError } = await supabase
-      .from('user_training_steps')
-      .select('training_step_id')
-      .eq('user_id', userId);
-
-    if (usError) throw usError;
-
-    // 5. Get User Status (to match Training interface)
-    const { data: userProgress } = await supabase
-      .from('user_training_progress')
-      .select('status, score')
-      .eq('user_id', userId)
-      .eq('training_id', trainingId)
-      .single();
-
+    const stepsProgressRef = collection(db, "users", userId, "training_steps");
+    const stepsProgressSnap = await getDocs(stepsProgressRef);
+    const completedStepIds = stepsProgressSnap.docs.map(d => d.id);
+    
     return {
-      id: training.id,
-      name: training.name,
-      description: training.description,
-      is_mandatory: training.is_mandatory || false,
-      status: userProgress?.status || 'pendente',
-      progress: userProgress?.score || 0, // Using score as progress for now
-      type: training.is_mandatory ? 'obrigatorio' : 'opcional', // Simplified logic
-      videos: videos || [],
-      steps: steps || [],
-      completedStepIds: userSteps?.map(s => s.training_step_id) || []
+      id: trainingId,
+      name: trainingData.name || '',
+      description: trainingData.description || '',
+      is_mandatory: trainingData.is_mandatory || false,
+      status: pData ? pData.status : 'pendente',
+      progress: pData ? pData.score : 0,
+      type: trainingData.is_mandatory ? 'obrigatorio' : 'opcional',
+      videos: videos,
+      steps: steps,
+      completedStepIds: completedStepIds
     };
   },
 
   startTraining: async (trainingId: string, userId: string): Promise<void> => {
-    // Check if progress exists
-    const { data: existing } = await supabase
-      .from('user_training_progress')
-      .select('id')
-      .eq('training_id', trainingId)
-      .eq('user_id', userId)
-      .single();
-
-    if (!existing) {
-      const { error } = await supabase
-        .from('user_training_progress')
-        .insert({
-          training_id: trainingId,
-          user_id: userId,
-          status: 'em_andamento',
-          started_at: new Date().toISOString()
-        });
-
-      if (error) throw error;
+    const pRef = doc(db, "users", userId, "training_progress", trainingId);
+    const pDoc = await getDoc(pRef);
+    if (!pDoc.exists()) {
+      await setDoc(pRef, {
+        status: 'em_andamento',
+        score: 0,
+        started_at: new Date().toISOString()
+      });
     }
   },
 
   toggleStep: async (stepId: string, userId: string, isChecked: boolean): Promise<void> => {
+    const stepRef = doc(db, "users", userId, "training_steps", stepId);
     if (isChecked) {
-      const { error } = await supabase.from('user_training_steps').insert({
-        user_id: userId,
-        training_step_id: stepId
-      });
-      if (error) throw error;
+      await setDoc(stepRef, { completed: true });
     } else {
-      const { error } = await supabase.from('user_training_steps').delete()
-        .eq('user_id', userId)
-        .eq('training_step_id', stepId);
-      if (error) throw error;
+      await deleteDoc(stepRef);
     }
   },
 
   completeTraining: async (trainingId: string, userId: string): Promise<void> => {
-    const { error } = await supabase.from('user_training_progress').update({
+    const pRef = doc(db, "users", userId, "training_progress", trainingId);
+    await setDoc(pRef, {
       status: 'concluido',
-      completed_at: new Date().toISOString(),
-      score: 100
-    }).eq('user_id', userId).eq('training_id', trainingId);
-    
-    if (error) throw error;
+      score: 100,
+      completed_at: new Date().toISOString()
+    }, { merge: true });
   }
 };

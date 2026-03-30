@@ -9,27 +9,17 @@ import { usePermissions } from "@/contexts/PermissionsContext";
 import { hasPermission } from "@/lib/permissions";
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/lib/supabase";
-import { toast } from "sonner";
 import { OrderStatus } from "@/types/database";
+import { purchaseService, FirestoreOrder } from "@/services/purchaseService";
+import { toast } from "sonner";
 
-interface PurchaseOrder {
-  id: string;
-  status: OrderStatus;
-  created_at: string;
-  requested_by: string;
-  unit_id: string;
-  profiles: {
-    full_name: string | null;
-    email: string;
-  };
-}
+// Substituído localmente pelas tipagens de FirestoreOrder
 
 const Purchases = () => {
   const { role, activeUnitId, isSuperAdmin } = usePermissions();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<string>("all");
-  const [orders, setOrders] = useState<PurchaseOrder[]>([]);
+  const [orders, setOrders] = useState<FirestoreOrder[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Permission Checks
@@ -39,30 +29,8 @@ const Purchases = () => {
     try {
       setLoading(true);
       
-      let query = supabase
-        .from('orders')
-        .select(`
-          id,
-          status,
-          created_at,
-          requested_by,
-          unit_id,
-          profiles:profiles!orders_requested_by_fkey (
-            full_name,
-            email
-          )
-        `)
-        .order('created_at', { ascending: false });
-
-      if (activeUnitId && !isSuperAdmin) {
-        query = query.eq('unit_id', activeUnitId);
-      }
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-
-      setOrders((data || []) as PurchaseOrder[]);
+      const data = await purchaseService.getOrders(isSuperAdmin ? undefined : (activeUnitId || undefined));
+      setOrders(data);
     } catch {
       toast.error("Erro ao carregar pedidos");
     } finally {
@@ -166,7 +134,7 @@ const Purchases = () => {
                           {formatDate(order.created_at)}
                         </span>
                         <span>
-                          Por: {order.profiles?.full_name || order.profiles?.email || "Usuário"}
+                          Por: {order.creator_name || "Usuário"}
                         </span>
                         <span className="font-mono text-xs opacity-70">
                           #{order.id.slice(0, 8)}

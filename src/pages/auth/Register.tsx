@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { signUp } from "@/lib/supabase";
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 import { toast } from "sonner";
 import { Loader2, ChefHat } from "lucide-react";
 
@@ -19,20 +21,27 @@ const Register = () => {
     e.preventDefault();
     setLoading(true);
 
-    const { error } = await signUp(email, password, fullName);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      await updateProfile(userCredential.user, { displayName: fullName });
+      
+      // Criar o documento de perfil global do usuário no Firestore
+      await setDoc(doc(db, "users", userCredential.user.uid), {
+        fullName,
+        email,
+        createdAt: new Date().toISOString()
+      });
 
-    if (error) {
+      toast.success("Conta criada com sucesso!", {
+        description: "Você já pode fazer login.",
+      });
+      navigate("/login");
+    } catch (error: any) {
       toast.error("Erro ao criar conta", {
         description: error.message,
       });
       setLoading(false);
-      return;
     }
-
-    toast.success("Conta criada com sucesso!", {
-      description: "Você já pode fazer login.",
-    });
-    navigate("/login");
   };
 
   return (

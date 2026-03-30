@@ -4,13 +4,13 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   Plus, Users as UsersIcon, Search, Mail, Shield, Loader2, Edit,
-  Trash2, Building2, GraduationCap, CheckCircle2, Clock, BookOpen, X
+  Trash2, Building2, GraduationCap, CheckCircle2, Clock, BookOpen, X, AlertTriangle
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useState, useEffect, useCallback } from "react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { AppRole, roleLabels } from "@/types/database";
-import { supabase } from "@/lib/supabase";
+import { userService } from "@/services/userService";
 import { toast } from "sonner";
 import { usePermissions } from "@/contexts/PermissionsContext";
 import { canManageUser, canCreateRole } from "@/lib/permissions";
@@ -85,6 +85,10 @@ const Users = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // User Deletion Dialog
+  const [userToDelete, setUserToDelete] = useState<UserData | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -103,50 +107,25 @@ const Users = () => {
   const currentNetworkId = roles?.[0]?.network_id;
 
   const fetchUnits = useCallback(async () => {
-    const { data } = await supabase.from("units").select("id, name");
-    if (data) setUnits(data);
+    try {
+      const data = await userService.getUnits();
+      setUnits(data as any);
+    } catch (e) { console.error(e); }
   }, []);
 
   const fetchTrainings = useCallback(async () => {
     if (!currentNetworkId) return;
-    const { data } = await supabase
-      .from("trainings")
-      .select("id, name, description")
-      .eq("network_id", currentNetworkId)
-      .eq("is_active", true);
-    if (data) setTrainings(data as TrainingRow[]);
+    try {
+      const data = await userService.getTrainings(currentNetworkId);
+      setTrainings(data as any);
+    } catch (e) { console.error(e); }
   }, [currentNetworkId]);
 
   const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
-      let query = supabase
-        .from("user_roles")
-        .select(`
-          id, role, is_active, user_id, unit_id,
-          profiles:user_id ( full_name, email ),
-          units:unit_id ( name )
-        `);
-
-      if (!isSuperAdmin && currentNetworkId) {
-        query = query.eq("network_id", currentNetworkId);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      const rows = (data || []) as UserRoleRow[];
-      setUsers(
-        rows.map((item) => ({
-          id: item.user_id,
-          name: item.profiles?.full_name || "Usuário sem nome",
-          email: item.profiles?.email || "Sem email",
-          role: item.role,
-          unit: item.units?.name || "Todas",
-          unitId: item.unit_id || "",
-          isActive: item.is_active,
-        }))
-      );
+      const data = await userService.getUsers(isSuperAdmin ? undefined : currentNetworkId);
+      setUsers(data as any);
     } catch {
       toast.error("Erro ao carregar usuários");
     } finally {
@@ -197,73 +176,17 @@ const Users = () => {
     try {
       if (editingUser) {
         // Update role in user_roles
-        const { error } = await (supabase as any)
-          .from("user_roles")
-          .update({ role: formData.role, unit_id: formData.unitId || null })
-          .eq("user_id", editingUser.id);
-
-        if (error) throw error;
-
+        await userService.updateUserRole(editingUser.id, formData.role, formData.unitId || null);
+        
         // Update profile name if changed
         if (formData.name && formData.name !== editingUser.name) {
-          await supabase
-            .from("profiles")
-            .update({ full_name: formData.name })
-            .eq("id", editingUser.id);
+          await userService.updateUserProfile(editingUser.id, formData.name);
         }
 
         toast.success("Usuário atualizado!");
       } else {
-        // Handle CPF based login logic
-        let userEmail = formData.email;
-        let userPassword = formData.password;
-
-        if (formData.cpf) {
-          const cleanCpf = formData.cpf.replace(/\D/g, "");
-          userEmail = `${cleanCpf}@codex.internal`;
-          if (!userPassword) {
-            userPassword = cleanCpf.slice(-4);
-          }
-        }
-
-        if (!userEmail) throw new Error("E-mail ou CPF obrigatório");
-
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: userEmail,
-          password: userPassword || Math.random().toString(36).slice(-10) + "A1!",
-          options: {
-            data: { 
-              full_name: formData.name,
-              cpf: formData.cpf.replace(/\D/g, "")
-            },
-          },
-        });
-
-        if (authError) throw authError;
-
-        const newUserId = authData.user?.id;
-        if (!newUserId) throw new Error("Falha ao criar usuário");
-
-        // Ensure profile exists
-        await supabase.from("profiles").upsert({
-          id: newUserId,
-          full_name: formData.name,
-          email: userEmail,
-          cpf: formData.cpf.replace(/\D/g, "")
-        } as any);
-
-        // Create role
-        const { error: roleError } = await (supabase as any).from("user_roles").insert({
-          user_id: newUserId,
-          role: formData.role,
-          unit_id: formData.unitId || null,
-          network_id: currentNetworkId || null,
-          is_active: true,
-        });
-
-        if (roleError) throw roleError;
-
-        toast.success(`Usuário ${formData.name || userEmail} criado!`);
+        toast.error("Criação de novos usuários está temporariamente indisponível após a migração. Utilize o Admin SDK/Console provisoriamente.");
+        return;
       }
 
       setIsDialogOpen(false);
@@ -278,11 +201,7 @@ const Users = () => {
   // --- Toggle Active ---
   const handleToggleActive = async (user: UserData) => {
     try {
-      const { error } = await supabase
-        .from("user_roles")
-        .update({ is_active: !user.isActive })
-        .eq("user_id", user.id);
-      if (error) throw error;
+      await userService.toggleUserActive(user.id, user.isActive);
       toast.success(user.isActive ? "Usuário desativado" : "Usuário reativado");
       fetchUsers();
     } catch {
@@ -291,19 +210,18 @@ const Users = () => {
   };
 
   // --- Delete User ---
-  const handleDeleteUser = async (user: UserData) => {
-    if (!confirm(`Excluir ${user.name}? Esta ação removerá o acesso ao sistema. Os dados de treinamento serão mantidos.`)) return;
+  const confirmDeleteUser = async () => {
+    if (!userToDelete) return;
+    setDeleting(true);
     try {
-      // Remove role (effectively blocks login via RLS)
-      const { error } = await supabase
-        .from("user_roles")
-        .delete()
-        .eq("user_id", user.id);
-      if (error) throw error;
+      await userService.deleteUserRole(userToDelete.id);
       toast.success("Acesso do usuário revogado");
       fetchUsers();
+      setUserToDelete(null);
     } catch {
-      toast.error("Erro ao excluir usuário");
+      toast.error("Erro ao revogar acesso do usuário");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -312,12 +230,8 @@ const Users = () => {
     setTrainingDrawerUser(user);
     setTrainingDrawerLoading(true);
 
-    const { data } = await supabase
-      .from("user_training_progress")
-      .select("training_id, status, score, started_at, completed_at")
-      .eq("user_id", user.id);
-
-    setUserProgress((data as UserTrainingProgress[]) || []);
+    const data = await userService.getUserTrainingProgress(user.id);
+    setUserProgress((data as any) || []);
     setTrainingDrawerLoading(false);
   };
 
@@ -332,23 +246,11 @@ const Users = () => {
         return;
       }
 
-      const { error } = await supabase.from("user_training_progress").insert({
-        user_id: trainingDrawerUser.id,
-        training_id: trainingId,
-        status: "pendente",
-        started_at: null,
-        score: 0,
-      });
-
-      if (error) throw error;
-
+      await userService.assignTraining(trainingDrawerUser.id, trainingId);
       toast.success("Treinamento atribuído!");
-      // Refresh progress
-      const { data } = await supabase
-        .from("user_training_progress")
-        .select("training_id, status, score, started_at, completed_at")
-        .eq("user_id", trainingDrawerUser.id);
-      setUserProgress((data as UserTrainingProgress[]) || []);
+      
+      const data = await userService.getUserTrainingProgress(trainingDrawerUser.id);
+      setUserProgress((data as any) || []);
     } catch (err: any) {
       toast.error(err?.message || "Erro ao atribuir treinamento");
     } finally {
@@ -360,17 +262,10 @@ const Users = () => {
     if (!trainingDrawerUser) return;
     if (!confirm("Remover este treinamento do usuário? O progresso será apagado.")) return;
     try {
-      await supabase
-        .from("user_training_progress")
-        .delete()
-        .eq("user_id", trainingDrawerUser.id)
-        .eq("training_id", trainingId);
+      await userService.removeTraining(trainingDrawerUser.id, trainingId);
 
-      const { data } = await supabase
-        .from("user_training_progress")
-        .select("training_id, status, score, started_at, completed_at")
-        .eq("user_id", trainingDrawerUser.id);
-      setUserProgress((data as UserTrainingProgress[]) || []);
+      const data = await userService.getUserTrainingProgress(trainingDrawerUser.id);
+      setUserProgress((data as any) || []);
       toast.success("Treinamento removido");
     } catch {
       toast.error("Erro ao remover treinamento");
@@ -550,7 +445,7 @@ const Users = () => {
                       size="sm"
                       variant="ghost"
                       className="h-8 text-xs text-destructive hover:text-destructive"
-                      onClick={() => handleDeleteUser(user)}
+                      onClick={() => setUserToDelete(user)}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
@@ -674,6 +569,30 @@ const Users = () => {
             <Button onClick={handleSaveUser} disabled={(!formData.email && !formData.cpf) || !formData.role || saving}>
               {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               {editingUser ? "Salvar Alterações" : "Criar Usuário"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!userToDelete} onOpenChange={(o) => (!o && !deleting) && setUserToDelete(null)}>
+        <DialogContent className="w-[95%] max-w-sm rounded-xl">
+          <DialogHeader>
+            <DialogTitle className="text-destructive flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5" />
+              Excluir Usuário?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-3 text-sm text-muted-foreground">
+            Você está prestes a revogar o acesso de <strong className="text-foreground">{userToDelete?.name}</strong>. Esta ação removerá o acesso ao sistema, mas os dados de treinamento serão mantidos.
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setUserToDelete(null)} disabled={deleting}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteUser} disabled={deleting}>
+              {deleting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Revogar Acesso
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,742 +1,93 @@
-
-import { useEffect, useMemo, useRef, useState } from "react";
-import { DishMock, useTrainings, TrainingStatus } from "@/contexts/TrainingsContext";
+import { useEffect, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Input } from "@/components/ui/input";
-import { 
-  GraduationCap,
-  RefreshCcw,
-  UserPlus,
-  PlayCircle
-} from "lucide-react";
+import { GraduationCap, PlayCircle, Clock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { trainingService } from "../services/trainingService";
+import { Training, TrainingStatus } from "../types";
+import { toast } from "sonner";
 
 export const MyTrainings = () => {
-  const {
-    employees,
-    trainings,
-    dishes,
-    videoProgressByTraining,
-    trainingsLoading,
-    trainingsError,
-    reloadTrainings,
-    addEmployee,
-    assignTraining,
-    startTraining,
-    addDish,
-    updateDish,
-    assignDishToTraining,
-    updateVideoProgress,
-    markTrainingCompleted,
-  } = useTrainings();
-
-  const [profileMode, setProfileMode] = useState<"operator" | "manager">("operator");
-  const [selectedOperatorId, setSelectedOperatorId] = useState<number | null>(null);
-  const [managerSelectedOperatorId, setManagerSelectedOperatorId] = useState<number | null>(null);
-  const [newEmployeeName, setNewEmployeeName] = useState("");
-  const [newTrainingTitle, setNewTrainingTitle] = useState("");
-  const [assignEmployeeId, setAssignEmployeeId] = useState<number | null>(null);
-  const [newDishTitle, setNewDishTitle] = useState("");
-  const [newDishDescription, setNewDishDescription] = useState("");
-  const [newDishVideoUrl, setNewDishVideoUrl] = useState("");
-  const [assignTrainingId, setAssignTrainingId] = useState<number | null>(null);
-  const [assignDishId, setAssignDishId] = useState<number | null>(null);
-  const [localError, setLocalError] = useState<string | null>(null);
-  const [dishError, setDishError] = useState<string | null>(null);
-  const [assignDishError, setAssignDishError] = useState<string | null>(null);
-  const [editingDishId, setEditingDishId] = useState<number | null>(null);
-  const [editDishTitle, setEditDishTitle] = useState("");
-  const [editDishDescription, setEditDishDescription] = useState("");
-  const [editDishVideoUrl, setEditDishVideoUrl] = useState("");
-  const [editDishError, setEditDishError] = useState<string | null>(null);
-
+  const { user } = useAuth();
   const navigate = useNavigate();
+  const [trainings, setTrainings] = useState<Training[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const operators = useMemo(
-    () => employees.filter((employee) => employee.role === "OPERATOR"),
-    [employees],
-  );
-
-  const effectiveOperatorId = selectedOperatorId ?? null;
-
-  const operatorTrainings = useMemo(() => {
-    if (!effectiveOperatorId) return [];
-    return trainings.filter((training) => training.assignedTo === effectiveOperatorId);
-  }, [trainings, effectiveOperatorId]);
-
-  const dishesById = useMemo(() => new Map(dishes.map((dish) => [dish.id, dish])), [dishes]);
-
-  const extractYouTubeId = (url: string) => {
-    try {
-      const parsed = new URL(url);
-      if (parsed.hostname.includes("youtube.com")) {
-        if (parsed.pathname.startsWith("/shorts/")) {
-          return parsed.pathname.split("/shorts/")[1]?.split("/")[0] ?? null;
-        }
-        if (parsed.pathname.startsWith("/embed/")) {
-          return parsed.pathname.split("/embed/")[1]?.split("/")[0] ?? null;
-        }
-        return parsed.searchParams.get("v");
+  useEffect(() => {
+    if (!user) return;
+    const fetchTrainings = async () => {
+      try {
+        setLoading(true);
+        const data = await trainingService.getMyTrainings(user.uid);
+        setTrainings(data);
+      } catch (error) {
+        console.error("Error fetching trainings:", error);
+        toast.error("Erro ao carregar treinamentos.");
+      } finally {
+        setLoading(false);
       }
-      if (parsed.hostname === "youtu.be") {
-        return parsed.pathname.replace("/", "");
-      }
-    } catch {
-      return null;
-    }
-    return null;
-  };
-
-  const resolveVideoUrl = (url: string) => {
-    const youtubeId = extractYouTubeId(url);
-    if (youtubeId) {
-      return `https://www.youtube.com/embed/${youtubeId}`;
-    }
-    return url;
-  };
-
-  const handleMarkCompleted = (trainingId: number) => {
-    if (!effectiveOperatorId) return;
-    markTrainingCompleted(effectiveOperatorId, trainingId);
-  };
-
-  const handleReload = async () => {
-    setSelectedOperatorId(null);
-    setManagerSelectedOperatorId(null);
-    await reloadTrainings();
-  };
-
-  const handleAddEmployee = () => {
-    const trimmed = newEmployeeName.trim();
-    if (!trimmed) {
-      setLocalError("Informe o nome do operador.");
-      return;
-    }
-    addEmployee(trimmed);
-    setNewEmployeeName("");
-    setLocalError(null);
-  };
-
-  const handleAssignTraining = () => {
-    const trimmed = newTrainingTitle.trim();
-    if (!assignEmployeeId || !trimmed) {
-      setLocalError("Selecione um operador e informe o treinamento.");
-      return;
-    }
-    assignTraining(assignEmployeeId, trimmed);
-    setNewTrainingTitle("");
-    setLocalError(null);
-  };
-
-  const handleAddDish = () => {
-    const title = newDishTitle.trim();
-    const description = newDishDescription.trim();
-    const videoUrl = newDishVideoUrl.trim();
-    if (!title || !description || !videoUrl) {
-      setDishError("Preencha nome, descrição e link do vídeo.");
-      return;
-    }
-    addDish(title, description, videoUrl);
-    setNewDishTitle("");
-    setNewDishDescription("");
-    setNewDishVideoUrl("");
-    setDishError(null);
-  };
-
-  const handleAssignDish = () => {
-    if (!assignTrainingId || !assignDishId) {
-      setAssignDishError("Selecione um treinamento e um prato.");
-      return;
-    }
-    assignDishToTraining(assignTrainingId, assignDishId);
-    setAssignDishError(null);
-  };
-
-  const handleStartEditDish = (dish: DishMock) => {
-    setEditingDishId(dish.id);
-    setEditDishTitle(dish.title);
-    setEditDishDescription(dish.description);
-    setEditDishVideoUrl(dish.videoUrl);
-    setEditDishError(null);
-  };
-
-  const handleCancelEditDish = () => {
-    setEditingDishId(null);
-    setEditDishTitle("");
-    setEditDishDescription("");
-    setEditDishVideoUrl("");
-    setEditDishError(null);
-  };
-
-  const handleSaveDish = () => {
-    if (!editingDishId) return;
-    const title = editDishTitle.trim();
-    const description = editDishDescription.trim();
-    const videoUrl = editDishVideoUrl.trim();
-    if (!title || !description || !videoUrl) {
-      setEditDishError("Preencha nome, descrição e link do vídeo.");
-      return;
-    }
-    updateDish(editingDishId, title, description, videoUrl);
-    handleCancelEditDish();
-  };
-
-  const StatusLine = ({ status }: { status: TrainingStatus }) => (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <StatusBadge status={status} />
-      <span className="uppercase">{status.replace("_", " ")}</span>
-    </div>
-  );
-
-  const operatorProfile = (() => {
-    if (trainingsLoading) {
-      return (
-        <div className="space-y-3">
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-32 w-full" />
-          <Skeleton className="h-32 w-full" />
-        </div>
-      );
-    }
-
-    if (trainingsError) {
-      return (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive space-y-3">
-          <div>Erro ao carregar treinamentos.</div>
-          <Button variant="outline" size="sm" onClick={reloadTrainings}>
-            Tentar novamente
-          </Button>
-        </div>
-      );
-    }
-
-    if (operators.length === 0) {
-      return (
-        <div className="space-y-4">
-          <EmptyState
-            icon={GraduationCap}
-            title="Nenhum operador disponível"
-            description="Cadastre um operador para iniciar."
-          />
-          <Button variant="outline" className="w-full" onClick={handleReload}>
-            Recarregar mocks
-          </Button>
-        </div>
-      );
-    }
-
-    const completed = operatorTrainings.filter((t) => t.status === "concluido");
-    const pending = operatorTrainings.filter((t) => t.status === "pendente");
-    const inProgress = operatorTrainings.filter((t) => t.status === "em_andamento");
-
-    return (
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <div className="text-sm font-semibold text-muted-foreground">Selecione o operador</div>
-          {selectedOperatorId ? (
-            <div className="flex items-center justify-between rounded-xl border px-3 py-2">
-              <span className="text-sm font-semibold">
-                {operators.find((employee) => employee.id === selectedOperatorId)?.name ?? "Operador"}
-              </span>
-              <Button size="sm" variant="outline" onClick={() => setSelectedOperatorId(null)}>
-                Trocar
-              </Button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-2">
-              {operators.map((employee) => (
-                <button
-                  key={employee.id}
-                  type="button"
-                  onClick={() => setSelectedOperatorId(employee.id)}
-                  className="h-10 rounded-lg border px-3 text-left text-sm font-semibold transition-colors hover:border-primary/50"
-                >
-                  {employee.name}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {selectedOperatorId && (
-          <section className="space-y-3">
-            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-              Treinamentos atribuídos
-            </h3>
-            {operatorTrainings.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-muted-foreground/30 p-4 text-sm text-muted-foreground">
-                Nenhum treinamento disponível.
-              </div>
-            ) : (
-            <div className="space-y-2">
-                {operatorTrainings.map((training) => {
-                  const trainingProgress = videoProgressByTraining[training.id] ?? {};
-                  const completedDishes = training.dishes.filter(
-                    (dishId) => (trainingProgress[dishId] ?? 0) >= 100,
-                  );
-                  const hasDishes = training.dishes.length > 0;
-                  const canComplete = hasDishes && training.dishes.length === completedDishes.length;
-                  const progressValue = hasDishes
-                    ? Math.round((completedDishes.length / training.dishes.length) * 100)
-                    : 0;
-
-                  return (
-                  <div key={training.id} className="bg-card border rounded-lg p-3 space-y-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="font-medium">{training.title}</div>
-                        <StatusBadge status={training.status} />
-                      </div>
-                      <StatusLine status={training.status} />
-                      <div className="space-y-3">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Pratos e vídeos
-                        </div>
-                        {hasDishes && (
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between text-xs text-muted-foreground">
-                              <span>Progresso</span>
-                              <span>
-                                {completedDishes.length}/{training.dishes.length} · {progressValue}%
-                              </span>
-                            </div>
-                            <div className="h-2 w-full rounded-full bg-muted">
-                              <div
-                                className="h-2 rounded-full bg-primary transition-all"
-                                style={{ width: `${progressValue}%` }}
-                              />
-                            </div>
-                          </div>
-                        )}
-                        {training.dishes.length === 0 ? (
-                          <div className="rounded-lg border border-dashed border-muted-foreground/30 p-3 text-sm text-muted-foreground">
-                            Nenhum conteúdo atribuído.
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {training.dishes
-                              .map((dishId) => dishesById.get(dishId))
-                              .filter((dish) => dish !== undefined)
-                              .map((dish) =>
-                                dish ? (
-                                  <div key={dish.id} className="flex items-center justify-between rounded-lg border p-3 bg-muted/30">
-                                    <div className="space-y-1">
-                                      <div className="font-medium text-sm">{dish.title}</div>
-                                      <div className="text-xs text-muted-foreground">{dish.description}</div>
-                                    </div>
-                                    {(trainingProgress[dish.id] ?? 0) >= 100 && (
-                                      <StatusBadge status="concluido" />
-                                    )}
-                                  </div>
-                                ) : null,
-                              )}
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* Navigating to ReelsPlayer instead of old DishVideo inline logic */}
-                      {training.status !== "concluido" && hasDishes && (
-                        <div className="pt-2">
-                          <Button
-                            className="w-full font-bold h-12 gap-2"
-                            onClick={() => navigate(`/training/${training.id}`)}
-                          >
-                            <PlayCircle className="w-5 h-5" />
-                            Começar Treinamento Interativo
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        )}
-
-        <section className="space-y-3">
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-            Histórico de concluídos
-          </h3>
-          {completed.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-muted-foreground/30 p-4 text-sm text-muted-foreground">
-              Nenhum treinamento concluído ainda.
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {completed.map((training) => (
-                <div key={training.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
-                  <span className="text-sm">{training.title}</span>
-                  <StatusBadge status={training.status} />
-                </div>
-              ))}
-            </div>
-          )}
-          {(pending.length > 0 || inProgress.length > 0) && (
-            <div className="text-xs text-muted-foreground">
-              Pendentes: {pending.length} · Em andamento: {inProgress.length}
-            </div>
-          )}
-        </section>
-      </div>
-    );
-  })();
-
-  const managerProfile = (() => {
-    if (trainingsLoading) {
-      return (
-        <div className="space-y-3">
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-32 w-full" />
-          <Skeleton className="h-32 w-full" />
-        </div>
-      );
-    }
-
-    if (employees.length === 0 || trainings.length === 0) {
-      return (
-        <div className="space-y-4">
-          <EmptyState
-            icon={GraduationCap}
-            title="Dados simulados vazios"
-            description="Recarregue os mocks para testar o fluxo."
-          />
-          <Button variant="outline" className="w-full" onClick={handleReload}>
-            Recarregar mocks
-          </Button>
-        </div>
-      );
-    }
-
-    const operatorsForAssign = operators.length > 0 ? operators : [];
-
-    return (
-      <div className="space-y-4">
-        <section className="space-y-2 rounded-lg border p-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Criar operador
-          </h3>
-          <div className="flex gap-2">
-            <Input
-              placeholder="Nome do operador"
-              value={newEmployeeName}
-              onChange={(event) => setNewEmployeeName(event.target.value)}
-            />
-            <Button onClick={handleAddEmployee}>
-              <UserPlus className="w-4 h-4 mr-2" />
-              Adicionar
-            </Button>
-          </div>
-          {localError && (
-            <div className="text-xs text-destructive">{localError}</div>
-          )}
-        </section>
-
-        <section className="space-y-2 rounded-lg border p-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Atribuir treinamento
-          </h3>
-          <div className="space-y-2">
-            {operatorsForAssign.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-muted-foreground/30 p-3 text-sm text-muted-foreground">
-                Nenhum operador disponível para atribuição.
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                {operatorsForAssign.map((employee) => {
-                  const isSelected = employee.id === assignEmployeeId;
-                  return (
-                    <button
-                      key={employee.id}
-                      type="button"
-                      onClick={() => setAssignEmployeeId(employee.id)}
-                      className={`h-10 rounded-lg border px-3 text-left text-sm font-semibold transition-colors ${
-                        isSelected
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border bg-card text-foreground hover:border-primary/50"
-                      }`}
-                    >
-                      {employee.name}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            <Input
-              placeholder="Título do treinamento"
-              value={newTrainingTitle}
-              onChange={(event) => setNewTrainingTitle(event.target.value)}
-            />
-            <Button onClick={handleAssignTraining}>Atribuir</Button>
-            {localError && (
-              <div className="text-xs text-destructive">{localError}</div>
-            )}
-          </div>
-        </section>
-
-        <section className="space-y-2 rounded-lg border p-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Cadastrar prato com vídeo
-          </h3>
-          <div className="space-y-2">
-            <Input
-              placeholder="Nome do prato"
-              value={newDishTitle}
-              onChange={(event) => setNewDishTitle(event.target.value)}
-            />
-            <Input
-              placeholder="Descrição do prato"
-              value={newDishDescription}
-              onChange={(event) => setNewDishDescription(event.target.value)}
-            />
-            <Input
-              placeholder="Link do vídeo (YouTube ou MP4)"
-              value={newDishVideoUrl}
-              onChange={(event) => setNewDishVideoUrl(event.target.value)}
-            />
-            <Button onClick={handleAddDish}>Adicionar prato</Button>
-            {dishError && <div className="text-xs text-destructive">{dishError}</div>}
-            {dishes.length === 0 && (
-              <div className="text-xs text-muted-foreground">
-                Nenhum prato cadastrado no momento.
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="space-y-2 rounded-lg border p-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Editar pratos
-          </h3>
-          <div className="space-y-2">
-            {dishes.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-muted-foreground/30 p-3 text-sm text-muted-foreground">
-                Nenhum prato disponível para edição.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {dishes.map((dish) => (
-                  <div key={dish.id} className="rounded-lg border px-2 py-2 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm font-medium">{dish.title}</div>
-                      <Button size="sm" variant="outline" onClick={() => handleStartEditDish(dish)}>
-                        Editar
-                      </Button>
-                    </div>
-                    {editingDishId === dish.id && (
-                      <div className="space-y-2">
-                        <Input
-                          placeholder="Nome do prato"
-                          value={editDishTitle}
-                          onChange={(event) => setEditDishTitle(event.target.value)}
-                        />
-                        <Input
-                          placeholder="Descrição do prato"
-                          value={editDishDescription}
-                          onChange={(event) => setEditDishDescription(event.target.value)}
-                        />
-                        <Input
-                          placeholder="Link do vídeo (YouTube ou MP4)"
-                          value={editDishVideoUrl}
-                          onChange={(event) => setEditDishVideoUrl(event.target.value)}
-                        />
-                        <div className="flex gap-2">
-                          <Button size="sm" onClick={handleSaveDish}>
-                            Salvar
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={handleCancelEditDish}>
-                            Cancelar
-                          </Button>
-                        </div>
-                        {editDishError && <div className="text-xs text-destructive">{editDishError}</div>}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="space-y-2 rounded-lg border p-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Vincular prato ao treinamento
-          </h3>
-          <div className="space-y-2">
-            {trainings.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-muted-foreground/30 p-3 text-sm text-muted-foreground">
-                Nenhum treinamento disponível.
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                {trainings.map((training) => {
-                  const isSelected = training.id === assignTrainingId;
-                  return (
-                    <button
-                      key={training.id}
-                      type="button"
-                      onClick={() => setAssignTrainingId(training.id)}
-                      className={`h-10 rounded-lg border px-3 text-left text-sm font-semibold transition-colors ${
-                        isSelected
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border bg-card text-foreground hover:border-primary/50"
-                      }`}
-                    >
-                      {training.title}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {dishes.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-muted-foreground/30 p-3 text-sm text-muted-foreground">
-                Nenhum prato disponível para vincular.
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                {dishes.map((dish) => {
-                  const isSelected = dish.id === assignDishId;
-                  return (
-                    <button
-                      key={dish.id}
-                      type="button"
-                      onClick={() => setAssignDishId(dish.id)}
-                      className={`h-10 rounded-lg border px-3 text-left text-sm font-semibold transition-colors ${
-                        isSelected
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border bg-card text-foreground hover:border-primary/50"
-                      }`}
-                    >
-                      {dish.title}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            <Button onClick={handleAssignDish}>Vincular prato</Button>
-            {assignDishError && <div className="text-xs text-destructive">{assignDishError}</div>}
-          </div>
-        </section>
-
-        <section className="space-y-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Operadores e progresso
-          </h3>
-          {managerSelectedOperatorId ? (
-            <div className="flex items-center justify-between rounded-lg border px-3 py-2">
-              <span className="text-sm font-semibold">
-                {operators.find((employee) => employee.id === managerSelectedOperatorId)?.name ?? "Operador"}
-              </span>
-              <Button size="sm" variant="outline" onClick={() => setManagerSelectedOperatorId(null)}>
-                Trocar
-              </Button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-2">
-              {operators.map((employee) => (
-                <button
-                  key={employee.id}
-                  type="button"
-                  onClick={() => setManagerSelectedOperatorId(employee.id)}
-                  className="h-10 rounded-lg border px-3 text-left text-sm font-semibold transition-colors hover:border-primary/50"
-                >
-                  {employee.name}
-                </button>
-              ))}
-            </div>
-          )}
-          {!managerSelectedOperatorId && (
-            <div className="text-xs text-muted-foreground">
-              Selecione um operador para ver os treinamentos.
-            </div>
-          )}
-          {managerSelectedOperatorId &&
-            operators
-              .filter((employee) => employee.id === managerSelectedOperatorId)
-              .map((employee) => {
-            const employeeTrainings = trainings.filter((training) => training.assignedTo === employee.id);
-            const completedCount = employeeTrainings.filter((training) => training.status === "concluido").length;
-            const totalCount = employeeTrainings.length;
-            const progress = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
-
-            return (
-              <div key={employee.id} className="rounded-lg border p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="font-semibold">{employee.name}</div>
-                  <div className="text-xs text-muted-foreground">{progress}% concluído</div>
-                </div>
-                {employeeTrainings.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">Sem treinamentos atribuídos.</div>
-                ) : (
-                  <div className="space-y-2">
-                    {employeeTrainings.map((training) => (
-                      <div key={training.id} className="rounded-lg border px-2 py-2 space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium">{training.title}</span>
-                          <StatusBadge status={training.status} />
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Vídeo: {training.status === "concluido" ? "assistido" : "pendente"}
-                        </div>
-                        {training.dishes.length === 0 ? (
-                          <div className="text-xs text-muted-foreground">Nenhum prato atribuído.</div>
-                        ) : (
-                          <div className="space-y-2">
-                            {training.dishes
-                              .map((dishId) => dishesById.get(dishId))
-                              .filter((dish) => dish !== undefined)
-                              .map((dish) => (
-                                <div key={dish?.id} className="rounded-md border px-2 py-1.5">
-                                  <div className="text-xs font-medium">{dish?.title}</div>
-                                  <div className="text-xs text-muted-foreground">{dish?.description}</div>
-                                </div>
-                              ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </section>
-      </div>
-    );
-  })();
+    };
+    fetchTrainings();
+  }, [user]);
 
   return (
-    <AppLayout title="Treinamento">
+    <AppLayout title="Meus Treinamentos">
       <PageHeader 
-        title="Treinamento" 
-        subtitle="Ambiente de testes com dados simulados"
+        title="Meus Treinamentos" 
+        subtitle="Acesse os conteúdos interativos da sua unidade"
       />
 
       <div className="p-4 space-y-6">
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant={profileMode === "operator" ? "default" : "outline"}
-            onClick={() => setProfileMode("operator")}
-          >
-            Operador
-          </Button>
-          <Button
-            variant={profileMode === "manager" ? "default" : "outline"}
-            onClick={() => setProfileMode("manager")}
-          >
-            Gestor
-          </Button>
-          <Button variant="outline" onClick={handleReload}>
-            <RefreshCcw className="w-4 h-4 mr-2" />
-            Recarregar
-          </Button>
-        </div>
-
-        {profileMode === "operator" ? operatorProfile : managerProfile}
+        {loading ? (
+          <div className="space-y-4">
+            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-32 w-full" />
+          </div>
+        ) : trainings.length === 0 ? (
+          <EmptyState
+            icon={GraduationCap}
+            title="Nenhum treinamento atribuído"
+            description="Você ainda não possui treinamentos nesta unidade. Converse com seu gestor."
+          />
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {trainings.map((training) => (
+              <div key={training.id} className="bg-card border rounded-lg p-5 space-y-4 flex flex-col justify-between hover:border-primary/50 transition-colors shadow-sm">
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="font-bold text-lg leading-tight">{training.name || "Treinamento sem nome"}</div>
+                    <StatusBadge status={(training.status || 'pendente') as TrainingStatus} />
+                  </div>
+                  {training.description && (
+                    <p className="text-sm text-muted-foreground line-clamp-3">
+                      {training.description}
+                    </p>
+                  )}
+                  {training.duration_seconds && training.duration_seconds > 0 ? (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-2">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>{Math.floor(training.duration_seconds / 60)} minutos de duração estimada</span>
+                    </div>
+                  ) : null}
+                </div>
+                
+                <Button
+                  className="w-full font-bold h-11 gap-2 mt-4"
+                  variant={training.status === "concluido" ? "outline" : "default"}
+                  onClick={() => navigate(`/training/${training.id}`)}
+                >
+                  <PlayCircle className="w-5 h-5" />
+                  {training.status === "concluido" ? "Revisar Conteúdo" : "Começar Treinamento"}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </AppLayout>
   );

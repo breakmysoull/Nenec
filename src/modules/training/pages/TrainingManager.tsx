@@ -5,9 +5,10 @@ import { Plus, Edit2, Trash2, Video, GripVertical } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/contexts/PermissionsContext";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/firebase";
+import { collectionGroup, getDocs, query, where } from "firebase/firestore";
 import { trainingService } from "../services/trainingService";
-import { Training, TrainingLesson } from "../types";
+import { Training, TrainingLesson, LessonQuestion } from "../types";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -35,18 +36,23 @@ export const TrainingManager = () => {
   }, [user]);
 
   useEffect(() => {
-    if (activeUnitId) {
-      supabase.from('units').select('network_id').eq('id', activeUnitId).single()
-        .then(({ data }) => {
-          if (data?.network_id) setNetworkId(data.network_id);
-        });
-    }
+      const fetchNetwork = async () => {
+        try {
+          const snap = await getDocs(query(collectionGroup(db, 'units'), where('id', '==', activeUnitId)));
+          if (!snap.empty) {
+             setNetworkId(snap.docs[0].ref.parent.parent?.id || null);
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      };
+      fetchNetwork();
   }, [activeUnitId]);
 
   const loadTrainings = async () => {
     if (!user) return;
     try {
-      const data = await trainingService.getMyTrainings(user.id);
+      const data = await trainingService.getMyTrainings(user.uid);
       setTrainings(data);
     } catch (error) {
       toast.error("Erro ao carregar treinamentos");
@@ -58,7 +64,7 @@ export const TrainingManager = () => {
   const loadVideos = async (trainingId: string) => {
     if (!user) return;
     try {
-      const data = await trainingService.getTrainingById(trainingId, user.id);
+      const data = await trainingService.getTrainingById(trainingId, user.uid);
       setVideos(data.lessons);
     } catch (error) {
       toast.error("Erro ao carregar vídeos");
@@ -237,7 +243,7 @@ export const TrainingManager = () => {
 
       {/* Video Dialog */}
       <Dialog open={isVideoDialogOpen} onOpenChange={setIsVideoDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingVideo.id ? "Editar" : "Novo"} Vídeo</DialogTitle>
           </DialogHeader>
@@ -265,6 +271,64 @@ export const TrainingManager = () => {
                 value={editingVideo.duration_seconds || ""} 
                 onChange={e => setEditingVideo({...editingVideo, duration_seconds: parseInt(e.target.value)})} 
               />
+            </div>
+
+            <div className="pt-4 border-t mt-4 space-y-4">
+               <div className="flex justify-between items-center">
+                  <Label className="text-base font-bold">Quiz de Validação (Opcional)</Label>
+                  <Button size="sm" variant="outline" onClick={() => {
+                     const newQ: LessonQuestion = { id: Date.now().toString(), text: '', options: ['', '', '', ''], correctAnswerIndex: 0 };
+                     setEditingVideo({ ...editingVideo, questions: [...(editingVideo.questions || []), newQ] });
+                  }}>
+                     <Plus className="w-4 h-4 mr-1"/> Nova Pergunta
+                  </Button>
+               </div>
+               
+               {(editingVideo.questions || []).map((q, qIndex) => (
+                  <div key={q.id} className="p-3 border rounded relative space-y-3 bg-muted/10">
+                     <Button size="icon" variant="ghost" className="absolute top-1 right-1 h-6 w-6 text-destructive" onClick={() => {
+                        const qs = [...(editingVideo.questions || [])];
+                        qs.splice(qIndex, 1);
+                        setEditingVideo({...editingVideo, questions: qs});
+                     }}>
+                        <Trash2 className="w-3 h-3"/>
+                     </Button>
+                     
+                     <div className="space-y-1">
+                       <Label className="text-xs">Pergunta</Label>
+                       <Input value={q.text} onChange={e => {
+                          const qs = [...(editingVideo.questions || [])];
+                          qs[qIndex].text = e.target.value;
+                          setEditingVideo({...editingVideo, questions: qs});
+                       }} placeholder="Ex: O que deve ser feito primeiro?" />
+                     </div>
+                     
+                     <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Opções & Resposta Correta (Marque a certa)</Label>
+                        {q.options.map((opt, optIndex) => (
+                           <div key={optIndex} className="flex items-center gap-2">
+                              <input type="radio" name={`correct-${q.id}`} 
+                                checked={q.correctAnswerIndex === optIndex}
+                                onChange={() => {
+                                  const qs = [...(editingVideo.questions || [])];
+                                  qs[qIndex].correctAnswerIndex = optIndex;
+                                  setEditingVideo({...editingVideo, questions: qs});
+                                }}
+                                className="w-4 h-4 cursor-pointer"
+                              />
+                              <Input className="h-8" value={opt} onChange={e => {
+                                 const qs = [...(editingVideo.questions || [])];
+                                 qs[qIndex].options[optIndex] = e.target.value;
+                                 setEditingVideo({...editingVideo, questions: qs});
+                              }} placeholder={`Opção ${optIndex + 1}`} />
+                           </div>
+                        ))}
+                     </div>
+                  </div>
+               ))}
+               {editingVideo.questions && editingVideo.questions.length === 0 && (
+                   <div className="text-sm text-muted-foreground text-center">Nenhuma pergunta. Clique acima para adicionar.</div>
+               )}
             </div>
           </div>
           <DialogFooter>

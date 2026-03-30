@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { User } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
+import { User, onAuthStateChanged, signOut as firebaseSignOut } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 
 interface AuthContextType {
   user: User | null;
@@ -32,51 +32,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let cancelled = false;
     const safetyTimeout = setTimeout(() => {
-      if (!cancelled) {
+      if (!cancelled && authLoading) {
         setAuthLoading(false);
       }
     }, 5000);
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUser(session?.user ?? null);
-        setAuthLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, 
+      (currentUser) => {
+        if (!cancelled) {
+          setUser(currentUser);
+          setAuthLoading(false);
+        }
+      },
+      (error) => {
+        if (!cancelled) {
+          console.error("AuthContext: Error getting session:", error);
+          setAuthError(error);
+          setAuthLoading(false);
+        }
       }
     );
-
-    supabase.auth.getSession()
-      .then(({ data: { session }, error }) => {
-        if (error) {
-          console.error("AuthContext: Error getting session:", error);
-          if (error.message.includes("Refresh Token") || error.message.includes("refresh_token")) {
-            console.warn("AuthContext: Invalid refresh token detected. Forcing sign out.");
-            handleSignOut();
-            return;
-          }
-          setAuthError(error);
-        }
-        setUser(session?.user ?? null);
-        setAuthLoading(false);
-      })
-      .catch((error: Error) => {
-        console.error("AuthContext: Unexpected error getting session:", error);
-        setAuthError(error);
-        setAuthLoading(false);
-      });
 
     return () => {
       cancelled = true;
       clearTimeout(safetyTimeout);
-      subscription.unsubscribe();
+      unsubscribe();
     };
   }, []);
 
   const handleSignOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
+    try {
+      await firebaseSignOut(auth);
+      setUser(null);
+    } catch (error: any) {
       setAuthError(error);
     }
-    setUser(null);
   };
 
   return (

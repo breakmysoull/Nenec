@@ -21,10 +21,12 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/lib/supabase";
+import { db } from "@/lib/firebase";
+import { collectionGroup, getDocs, query, where } from "firebase/firestore";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const ChecklistManager = () => {
-  const { activeUnitId } = usePermissions();
+  const { activeNetworkId, activeUnitId } = usePermissions();
   const [checklists, setChecklists] = useState<TodayChecklist[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedChecklist, setSelectedChecklist] = useState<TodayChecklist | null>(null);
@@ -33,6 +35,7 @@ const ChecklistManager = () => {
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [isEditingChecklist, setIsEditingChecklist] = useState(false);
   const [editChecklistName, setEditChecklistName] = useState("");
+  const [editChecklistSector, setEditChecklistSector] = useState("");
   const [editTimefenceStart, setEditTimefenceStart] = useState("");
   const [editTimefenceEnd, setEditTimefenceEnd] = useState("");
   const [isRestoring, setIsRestoring] = useState(false);
@@ -42,10 +45,10 @@ const ChecklistManager = () => {
   }, [activeUnitId]);
 
   const loadChecklists = async () => {
-    if (!activeUnitId) return;
+    if (!activeUnitId || !activeNetworkId) return;
     setLoading(true);
     try {
-      const data = await checklistService.getTodayChecklists(activeUnitId);
+      const data = await checklistService.getTodayChecklists(activeNetworkId, activeUnitId);
       setChecklists(data);
     } catch (error) {
       toast.error("Erro ao carregar checklists");
@@ -55,9 +58,9 @@ const ChecklistManager = () => {
   };
 
   const handleUpdateItem = async () => {
-    if (!editingItem || !editingItem.title.trim()) return;
+    if (!editingItem || !editingItem.title.trim() || !activeNetworkId || !selectedChecklist) return;
     
-    const success = await checklistService.updateChecklistItem(editingItem.id, { title: editingItem.title });
+    const success = await checklistService.updateChecklistItem(activeNetworkId, selectedChecklist.id, editingItem.id, { title: editingItem.title });
     if (success) {
       toast.success("Item atualizado");
       if (selectedChecklist) {
@@ -74,8 +77,9 @@ const ChecklistManager = () => {
 
   const handleDeleteItem = async (itemId: string) => {
     if (!confirm("Tem certeza que deseja excluir este item?")) return;
+    if (!activeNetworkId || !selectedChecklist) return;
 
-    const success = await checklistService.deleteChecklistItem(itemId);
+    const success = await checklistService.deleteChecklistItem(activeNetworkId, selectedChecklist.id, itemId);
     if (success) {
       toast.success("Item excluído");
       if (selectedChecklist) {
@@ -88,12 +92,12 @@ const ChecklistManager = () => {
   };
 
   const handleAddItem = async () => {
-    if (!selectedChecklist || !newItemTitle.trim()) return;
+    if (!selectedChecklist || !newItemTitle.trim() || !activeNetworkId || !activeUnitId) return;
 
     const nextOrder = selectedChecklist.items.length + 1;
-    const success = await checklistService.addChecklistItem(selectedChecklist.id, {
+    const success = await checklistService.addChecklistItem(activeNetworkId, selectedChecklist.id, {
       title: newItemTitle,
-      order_index: nextOrder
+      orderIndex: nextOrder
     });
 
     if (success) {
@@ -101,7 +105,7 @@ const ChecklistManager = () => {
       setNewItemTitle("");
       setIsAddingItem(false);
       // Reload checklist to get the new item with its real ID
-      const updatedData = await checklistService.getTodayChecklists(activeUnitId!);
+      const updatedData = await checklistService.getTodayChecklists(activeNetworkId, activeUnitId);
       const refreshed = updatedData.find(c => c.id === selectedChecklist.id);
       if (refreshed) setSelectedChecklist(refreshed);
     } else {
@@ -110,20 +114,24 @@ const ChecklistManager = () => {
   };
 
   const handleEditChecklist = async () => {
-    if (!selectedChecklist || !editChecklistName.trim()) return;
+    if (!selectedChecklist || !editChecklistName.trim() || !activeNetworkId) return;
+
+    const finalName = editChecklistSector 
+      ? `${editChecklistName.trim()} [${editChecklistSector}]` 
+      : editChecklistName.trim();
 
     // Convert time format to ensure it's compatible if needed, or send as is
-    const success = await checklistService.updateChecklist(selectedChecklist.id, { 
-      name: editChecklistName,
-      timefence_start: editTimefenceStart ? `${editTimefenceStart}:00` : null,
-      timefence_end: editTimefenceEnd ? `${editTimefenceEnd}:00` : null
+    const success = await checklistService.updateChecklist(activeNetworkId, selectedChecklist.id, { 
+      name: finalName,
+      timefenceStart: editTimefenceStart ? `${editTimefenceStart}:00` : null,
+      timefenceEnd: editTimefenceEnd ? `${editTimefenceEnd}:00` : null
     });
     
     if (success) {
       toast.success("Checklist atualizado");
       setSelectedChecklist({ 
         ...selectedChecklist, 
-        name: editChecklistName,
+        name: finalName,
         timefenceStart: editTimefenceStart || null,
         timefenceEnd: editTimefenceEnd || null
       });
@@ -140,15 +148,12 @@ const ChecklistManager = () => {
       setLoading(true);
       setIsRestoring(false);
       
-      const { data: unit } = await supabase
-        .from("units")
-        .select("network_id")
-        .eq("id", activeUnitId)
-        .single();
+      const snap = await getDocs(query(collectionGroup(db, 'units'), where('id', '==', activeUnitId)));
+      const networkId = snap.empty ? null : snap.docs[0].ref.parent.parent?.id;
         
-      if (unit?.network_id) {
-        await checklistService.seedOperationalChecklists(unit.network_id);
-        toast.success("Checklists padrões restaurados com sucesso!");
+      if (networkId) {
+        await checklistService.seedOperationalChecklists(networkId);
+        toast.success("Checklists padrões restaurados com sucesso no Firebase!");
         await loadChecklists();
       } else {
         toast.error("Erro ao identificar a rede da unidade.");
@@ -200,7 +205,14 @@ const ChecklistManager = () => {
                   <ClipboardCheck className="w-5 h-5 text-primary" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <span className="font-bold text-lg">{checklist.name}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-lg">{checklist.name.replace(/\[.*?\]/, "").trim()}</span>
+                    {checklist.name.match(/\[(.*?)\]/) && (
+                      <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
+                        {checklist.name.match(/\[(.*?)\]/)?.[1]}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm text-muted-foreground">{checklist.totalItems} itens</p>
                 </div>
                 <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
@@ -211,12 +223,28 @@ const ChecklistManager = () => {
           <div className="space-y-6">
             {/* Checklist Actions */}
             <div className="flex items-center justify-between gap-2 bg-muted/30 p-3 rounded-xl border">
-              <div className="flex-1 min-w-0">
-                <h3 className="font-bold truncate">{selectedChecklist.name}</h3>
+              <div className="flex-1 min-w-0 flex items-center gap-2">
+                <h3 className="font-bold truncate">{selectedChecklist.name.replace(/\[.*?\]/, "").trim()}</h3>
+                {selectedChecklist.name.match(/\[(.*?)\]/) && (
+                  <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
+                    {selectedChecklist.name.match(/\[(.*?)\]/)?.[1]}
+                  </span>
+                )}
               </div>
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => {
-                  setEditChecklistName(selectedChecklist.name);
+                  let name = selectedChecklist.name;
+                  let sector = "";
+                  for (const s of ["Cozinha", "Bar", "Salão", "Delivery"]) {
+                    if (name.includes(`[${s}]`)) {
+                      sector = s;
+                      name = name.replace(`[${s}]`, "").trim();
+                      break;
+                    }
+                  }
+                  
+                  setEditChecklistName(name);
+                  setEditChecklistSector(sector);
                   // Strip seconds when loading to type="time" input
                   setEditTimefenceStart(selectedChecklist.timefenceStart?.substring(0, 5) || "");
                   setEditTimefenceEnd(selectedChecklist.timefenceEnd?.substring(0, 5) || "");
@@ -315,6 +343,21 @@ const ChecklistManager = () => {
                 value={editChecklistName}
                 onChange={(e) => setEditChecklistName(e.target.value)}
               />
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Setor / Área</Label>
+              <Select value={editChecklistSector || "nenhum"} onValueChange={(v) => setEditChecklistSector(v === "nenhum" ? "" : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione um setor" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="nenhum">Nenhum setor específico</SelectItem>
+                  {["Cozinha", "Bar", "Salão", "Delivery"].map(sector => (
+                    <SelectItem key={sector} value={sector}>{sector}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             
             <div className="grid grid-cols-2 gap-4">

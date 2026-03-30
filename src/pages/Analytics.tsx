@@ -28,15 +28,16 @@ const COLORS = {
 };
 
 const Analytics = () => {
-  const { activeUnitId, isSuperAdmin } = usePermissions();
+  const { activeNetworkId, activeUnitId, isSuperAdmin } = usePermissions();
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
+      if (!activeNetworkId) return;
       setLoading(true);
-      const result = await checklistService.getAnalyticsData(activeUnitId || undefined, !!isSuperAdmin, 7);
+      const result = await checklistService.getAnalyticsData(activeNetworkId, activeUnitId || undefined, !!isSuperAdmin, 7);
       if (!cancelled) {
         setData(result);
         setLoading(false);
@@ -44,7 +45,7 @@ const Analytics = () => {
     };
     load();
     return () => { cancelled = true; };
-  }, [activeUnitId, isSuperAdmin]);
+  }, [activeNetworkId, activeUnitId, isSuperAdmin]);
 
   const kpis = [
     {

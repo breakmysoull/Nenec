@@ -67,7 +67,7 @@ const reasonLabels: Record<string, string> = {
 
 const ChecklistReview = () => {
   const { user } = useAuth();
-  const { activeUnitId, isSuperAdmin } = usePermissions();
+  const { activeNetworkId, activeUnitId, isSuperAdmin } = usePermissions();
   const [allChecklists, setAllChecklists] = useState<ExecutedChecklist[]>([]);
   const [executedChecklists, setExecutedChecklists] = useState<ExecutedChecklist[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,8 +92,10 @@ const ChecklistReview = () => {
         return;
       }
 
+      if (!activeNetworkId) return;
+
       setLoading(true);
-      const runs = await checklistService.getCompletedChecklistRuns(activeUnitId || undefined, isSuperAdmin);
+      const runs = await checklistService.getCompletedChecklistRuns(activeNetworkId, activeUnitId || undefined, isSuperAdmin);
       if (!cancelled) {
         const mapped = runs.map((run) => ({
           id: run.id,
@@ -115,7 +117,7 @@ const ChecklistReview = () => {
     loadCompleted();
 
     return () => { cancelled = true; };
-  }, [activeUnitId, isSuperAdmin]);
+  }, [activeNetworkId, activeUnitId, isSuperAdmin]);
 
   // Apply filters whenever allChecklists or filters change
   useEffect(() => {
@@ -173,7 +175,8 @@ const ChecklistReview = () => {
     setSelectedChecklist(checklist);
     setIsReviewDialogOpen(true);
     setManagerObservation("");
-    const items = await checklistService.getChecklistRunDetails(checklist.id);
+    if (!activeNetworkId) return;
+    const items = await checklistService.getChecklistRunDetails(activeNetworkId, activeUnitId || undefined, checklist.id);
     const sortedItems = [...items].sort((a, b) => {
       if (a.status === b.status) return 0;
       return a.status === "nok" ? -1 : 1;
@@ -182,13 +185,15 @@ const ChecklistReview = () => {
   };
 
   const handleConfirmReview = async () => {
-    if (!selectedChecklist || !user) return;
+    if (!selectedChecklist || !user || !activeNetworkId) return;
 
     try {
       const success = await checklistService.reviewChecklist(
+        activeNetworkId,
+        activeUnitId || undefined,
         selectedChecklist.id,
         managerObservation,
-        user.id
+        user.uid
       );
 
       if (!success) return;

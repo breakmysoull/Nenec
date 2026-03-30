@@ -29,7 +29,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerFooter } from "
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { checklistService, TodayChecklist } from "@/services/checklistService";
-import { syncService } from "@/services/checklistSyncService";
+
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/contexts/PermissionsContext";
 import { useNavigate } from "react-router-dom";
@@ -91,7 +91,7 @@ const getUrgencyTag = (checklist: { timefenceStart?: string | null; timefenceEnd
 
 const Checklists = () => {
   const { user } = useAuth();
-  const { activeUnitId, role } = usePermissions();
+  const { activeNetworkId, activeUnitId, role } = usePermissions();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isAdmin = isManagerOrAbove(role);
@@ -116,11 +116,14 @@ const Checklists = () => {
   const [nokPhoto, setNokPhoto] = useState<string | null>(null);
   const nokFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Sector Filter
+  const [activeSector, setActiveSector] = useState<string | null>(null);
+
   const { data: checklists = [], isLoading: loading } = useQuery({
     queryKey: ['checklists', 'today', activeUnitId],
     queryFn: async () => {
-      if (!activeUnitId) return [];
-      return await checklistService.getTodayChecklists(activeUnitId);
+      if (!activeNetworkId || !activeUnitId) return [];
+      return await checklistService.getTodayChecklists(activeNetworkId, activeUnitId);
     },
     staleTime: 1000 * 60 * 5, // 5 minutes
     retry: false,
@@ -225,7 +228,8 @@ const Checklists = () => {
         setActiveRunId(`offline-run-${Date.now()}`);
         toast.info("Offline: Iniciando em modo offline.");
       } else {
-        const runId = await checklistService.startChecklistRun(id, activeUnitId, user.id);
+        if (!activeNetworkId) return;
+        const runId = await checklistService.startChecklistRun(activeNetworkId, activeUnitId, id, user.uid);
         setActiveRunId(runId);
       }
     }
@@ -243,47 +247,26 @@ const Checklists = () => {
       const photoUrl = answer.url || answer.photo || null;
 
       if (!navigator.onLine || activeRunId.startsWith('offline')) {
-        toast.info("Offline: Salvando resposta localmente.");
-        await syncService.enqueueTask({
-          type: 'SAVE_RESULT',
-          payload: {
-            runId: activeRunId,
-            itemId: currentItem.id,
+        toast.info("Offline: Ações salvas localmente para envio automático.");
+      }
+
+      if (activeNetworkId) {
+        const responseId = await checklistService.saveChecklistItemResult(
+          activeNetworkId,
+          activeUnitId,
+          activeRunId,
+          currentItem.id,
+          {
             status,
             reason: answer.reason,
             observation: answer.observation,
-            offlinePhotoData: photoUrl,
-            offlinePhotoName: photoUrl ? `offline_${Date.now()}.jpg` : null,
-            userId: user.id
+            photoUrl
           }
-        });
+        );
 
         if (status === 'nok' && activeUnitId) {
-           await syncService.enqueueTask({
-             type: 'CREATE_ACTION_PLAN',
-             payload: {
-               response_id: `offline-resp-${Date.now()}`, // Temporary ID for queuing
-               unit_id: activeUnitId,
-               description: `Regularizar falha: ${answer.reason || 'Desconhecida'}`,
-               resolution_notes: answer.observation,
-             }
-           });
-        }
-      } else {
-        const responseId = await checklistService.saveChecklistItemResult({
-          runId: activeRunId,
-          itemId: currentItem.id,
-          status,
-          reason: answer.reason,
-          observation: answer.observation,
-          photoUrl,
-          userId: user.id,
-        });
-
-        if (status === 'nok' && responseId && activeUnitId) {
-          await checklistService.createActionPlan({
-            response_id: responseId,
-            unit_id: activeUnitId,
+          await checklistService.createActionPlan(activeNetworkId, activeUnitId, {
+            responseId: activeRunId,
             description: `Regularizar falha: ${answer.reason || 'Desconhecida'}`,
           });
         }
@@ -323,13 +306,11 @@ const Checklists = () => {
   const finishChecklist = async () => {
     if (activeRunId) {
       if (!navigator.onLine || activeRunId.startsWith('offline')) {
-        await syncService.enqueueTask({
-          type: 'FINISH_RUN',
-          payload: { runId: activeRunId }
-        });
-        toast.info("Offline: Checklist finalizado pendente de sincronização.");
+        toast.info("Offline: Checklist finalizado pendente de sincronização nativa.");
       } else {
-        await checklistService.completeChecklistRun(activeRunId);
+        if (activeNetworkId && activeUnitId) {
+          await checklistService.completeChecklistRun(activeNetworkId, activeUnitId, activeRunId);
+        }
         toast.success("Checklist finalizado com sucesso!");
       }
     }
@@ -365,7 +346,7 @@ const Checklists = () => {
         return;
       }
 
-      const uploadedUrl = await checklistService.uploadChecklistPhoto(file, activeRunId, currentItem.id);
+      const uploadedUrl = await checklistService.uploadChecklistPhoto(file, activeNetworkId, activeUnitId, activeRunId, currentItem.id);
       if (!uploadedUrl) {
         return;
       }
@@ -394,7 +375,8 @@ const Checklists = () => {
         return;
       }
 
-      const uploadedUrl = await checklistService.uploadChecklistPhoto(file, activeRunId, currentItem.id);
+      if (!activeNetworkId || !activeUnitId) return;
+      const uploadedUrl = await checklistService.uploadChecklistPhoto(file, activeNetworkId, activeUnitId, activeRunId, currentItem.id);
       if (!uploadedUrl) {
         return;
       }
@@ -416,7 +398,8 @@ const Checklists = () => {
       const options = { maxSizeMB: 1, maxWidthOrHeight: 1280, useWebWorker: true };
       try { file = await imageCompression(file, options); } catch (e) { console.error(e); }
       
-      const url = await checklistService.uploadFinalPhoto(file, activeRunId, "setup");
+      if (!activeNetworkId || !activeUnitId) return;
+      const url = await checklistService.uploadFinalPhoto(file, activeNetworkId, activeUnitId, activeRunId, "setup");
       if (url) setFinalSetupPhoto(url);
       else toast.error("Falha ao enviar foto da praça montada");
     } finally {
@@ -432,7 +415,8 @@ const Checklists = () => {
       const options = { maxSizeMB: 1, maxWidthOrHeight: 1280, useWebWorker: true };
       try { file = await imageCompression(file, options); } catch (e) { console.error(e); }
 
-      const url = await checklistService.uploadFinalPhoto(file, activeRunId, "stock");
+      if (!activeNetworkId || !activeUnitId) return;
+      const url = await checklistService.uploadFinalPhoto(file, activeNetworkId, activeUnitId, activeRunId, "stock");
       if (url) setFinalStockPhoto(url);
       else toast.error("Falha ao enviar foto dos insumos estocados");
     } finally {
@@ -444,8 +428,8 @@ const Checklists = () => {
     if (!currentItem || currentItemIndex === 0) return;
     const prevIndex = Math.max(currentItemIndex - 1, 0);
     const itemId = currentItem.id;
-    if (activeRunId) {
-      await checklistService.undoChecklistItemAnswer(activeRunId, itemId);
+    if (activeRunId && activeNetworkId && activeUnitId) {
+      await checklistService.undoChecklistItemAnswer(activeNetworkId, activeUnitId, activeRunId, itemId);
     }
     setAnswers(prev => {
       const next = { ...prev };
@@ -796,20 +780,45 @@ const Checklists = () => {
         }
       />
 
-      <div className="p-4 space-y-6">
+      <div className="px-4 pt-4 overflow-x-auto hide-scrollbar">
+        <div className="flex items-center gap-2 min-w-max pb-2">
+          {["Cozinha", "Bar", "Salão", "Delivery"].map((sector) => (
+            <Button
+              key={sector}
+              variant={activeSector === sector ? "default" : "outline"}
+              size="sm"
+              className="rounded-full px-5"
+              onClick={() => setActiveSector(sector)}
+            >
+              {sector}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      <div className="p-4 space-y-6 pt-2">
         {loading ? (
           <div className="flex items-center justify-center py-12 text-muted-foreground">
             <Loader2 className="w-6 h-6 animate-spin" />
           </div>
-        ) : checklists.length === 0 ? (
+        ) : !activeSector ? (
+          <EmptyState
+            icon={ClipboardCheck}
+            title="Selecione um setor"
+            description="Escolha uma área acima para carregar os checklists"
+          />
+        ) : checklists.filter(c => c.name.toLowerCase().includes(activeSector.toLowerCase())).length === 0 ? (
           <EmptyState
             icon={ClipboardCheck}
             title="Sem checklists"
-            description="Não há checklists configurados para hoje"
+            description={`Não há checklists de ${activeSector} configurados para hoje`}
           />
         ) : (
           typeOrder.map((type) => {
-            const group = checklists.filter(c => c.type === type);
+            const group = checklists
+              .filter(c => c.name.toLowerCase().includes(activeSector.toLowerCase()))
+              .filter(c => c.type === type);
+            
             if (group.length === 0) return null;
 
             const Icon = typeIcons[type];
@@ -862,7 +871,17 @@ const Checklists = () => {
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-bold text-base truncate">{checklist.name}</span>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-bold text-base truncate">
+                              {checklist.name.replace(/\[.*?\]/, "").trim()}
+                            </span>
+                            {/* Opcional: mostrar a tag se não estiver filtrando ou pra ficar claro */}
+                            {checklist.name.match(/\[(.*?)\]/) && !activeSector && (
+                              <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-semibold">
+                                {checklist.name.match(/\[(.*?)\]/)?.[1]}
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-1.5 flex-shrink-0">
                             {urgency && (
                               <span className={cn("text-xs font-bold px-2 py-0.5 rounded", urgency.className)}>

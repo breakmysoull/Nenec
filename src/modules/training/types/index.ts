@@ -1,8 +1,5 @@
-
-import { Database } from "@/integrations/supabase/types";
-
-export type TrainingStatus = Database["public"]["Enums"]["training_status"];
-export type AppRole = Database["public"]["Enums"]["app_role"];
+export type TrainingStatus = "pendente" | "em_andamento" | "concluido" | "falhou";
+export type AppRole = "super_admin" | "admin_rede" | "gerente" | "operador" | "estoquista";
 
 export interface Training {
   id: string;
@@ -27,6 +24,13 @@ export interface Training {
 // For now, we will assume TrainingModule is synonymous with Training in this flat schema.
 export type TrainingModule = Training;
 
+export interface LessonQuestion {
+  id: string;
+  text: string;
+  options: string[];
+  correctAnswerIndex: number;
+}
+
 export interface TrainingLesson {
   id: string;
   training_id: string;
@@ -34,6 +38,7 @@ export interface TrainingLesson {
   video_url: string | null;
   order_index: number | null;
   duration_seconds: number | null;
+  questions?: LessonQuestion[] | null;
   created_at: string | null;
   // Computed
   is_completed?: boolean;

@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { signIn, checkConnection } from "@/lib/supabase";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 import { toast } from "sonner";
 import { Loader2, ChefHat } from "lucide-react";
 
@@ -18,14 +19,6 @@ const Login = () => {
     e.preventDefault();
     setLoading(true);
 
-    try {
-      const isConnected = await checkConnection();
-      if (!isConnected) {
-        toast.error("Erro de conexão com o servidor. Verifique sua internet.");
-        setLoading(false);
-        return;
-      }
-
       // Detect CPF or Email
       let loginIdentifier = email;
       const cleanCpf = email.replace(/\D/g, "");
@@ -35,27 +28,16 @@ const Login = () => {
         loginIdentifier = `${cleanCpf}@codex.internal`;
       }
 
-      const { data, error } = await signIn(loginIdentifier, password);
-
-      if (error) {
-        toast.error("Erro ao fazer login", {
-          description: error.message,
-        });
-        setLoading(false);
-        return;
-      }
-
-      if (data.session) {
+      try {
+        await signInWithEmailAndPassword(auth, loginIdentifier, password);
         toast.success("Login realizado com sucesso!");
         navigate("/dashboard");
-      } else {
-        toast.error("Erro ao iniciar sessão. Verifique suas credenciais.");
+      } catch (err: any) {
+        toast.error("Erro ao inciar sessão. Verifique suas credenciais.", {
+          description: err.message,
+        });
         setLoading(false);
       }
-    } catch (err) {
-      toast.error("Ocorreu um erro inesperado ao fazer login.");
-      setLoading(false);
-    }
   };
 
   return (

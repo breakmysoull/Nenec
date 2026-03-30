@@ -8,7 +8,7 @@ import { PermissionsProvider } from "@/contexts/PermissionsContext";
 import { TrainingsProvider } from "@/contexts/TrainingsContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { useEffect } from "react";
-import { syncService } from "@/services/checklistSyncService";
+
 
 // Auth Pages
 import Login from "./pages/auth/Login";
@@ -38,15 +38,12 @@ const queryClient = new QueryClient();
 
 const App = () => {
   useEffect(() => {
+    // Firestore native persistence handles offline sync
     const handleOnline = () => {
-      console.log('App is online. Attempting to sync offline checklists...');
-      syncService.syncAll();
+      console.log('App is online. Firebase will sync automatically.');
     };
 
     window.addEventListener('online', handleOnline);
-    // Initial sync attempt when app loads
-    syncService.syncAll();
-
     return () => window.removeEventListener('online', handleOnline);
   }, []);
 

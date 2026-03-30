@@ -3,7 +3,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { supabase } from "@/integrations/supabase/client";
+import { actionPlanService } from "@/services/actionPlanService";
 import { usePermissions } from "@/contexts/PermissionsContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { isManagerOrAbove } from "@/lib/permissions";
@@ -44,17 +44,8 @@ export default function ActionPlans() {
 
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("checklist_action_plans" as any)
-        .select("*")
-        .eq("unit_id", activeUnitId)
-        .in("status", ["PENDING", "IN_PROGRESS"])
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        throw error;
-      }
-      setPlans(data as unknown as ChecklistActionPlan[]);
+      const data = await actionPlanService.getPlans(activeUnitId);
+      setPlans(data);
     } catch (err) {
       console.error("Erro ao carregar planos de ação:", err);
       toast.error("Não foi possível carregar as tratativas.");
@@ -80,15 +71,8 @@ export default function ActionPlans() {
 
     try {
       setUploading(true);
-      const filePath = `action_plans/${selectedPlan.id}-${Date.now()}.jpg`;
-      const { error } = await supabase.storage
-        .from("checklist-evidences")
-        .upload(filePath, file, { upsert: true, contentType: "image/jpeg" });
-
-      if (error) throw error;
-
-      const { data } = supabase.storage.from("checklist-evidences").getPublicUrl(filePath);
-      setResolutionPhoto(data.publicUrl);
+      const url = await actionPlanService.uploadPhoto(file, selectedPlan.id);
+      setResolutionPhoto(url);
       toast.success("Foto anexada!");
     } catch (error) {
       console.error("Erro ao fazer upload da evidência:", error);
@@ -108,16 +92,12 @@ export default function ActionPlans() {
     }
 
     try {
-      const { error } = await supabase
-        .from("checklist_action_plans" as any)
-        .update({
-          status: isAdmin ? 'VERIFIED_BY_MANAGER' : 'RESOLVED',
-          resolution_notes: resolutionNotes,
-          resolution_evidence_url: resolutionPhoto,
-        })
-        .eq("id", selectedPlan.id);
-
-      if (error) throw error;
+      await actionPlanService.resolvePlan(
+        selectedPlan.id,
+        isAdmin ? 'VERIFIED_BY_MANAGER' : 'RESOLVED',
+        resolutionNotes,
+        resolutionPhoto
+      );
 
       toast.success("Tratativa concluída com sucesso!");
       setIsResolveDrawerOpen(false);

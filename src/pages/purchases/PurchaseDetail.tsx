@@ -19,10 +19,9 @@ import { usePermissions } from "@/contexts/PermissionsContext";
 import { hasPermission } from "@/lib/permissions";
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { supabase } from "@/lib/supabase";
-import { toast } from "sonner";
 import { OrderStatus } from "@/types/database";
-import { purchaseService } from "@/services/purchaseService";
+import { purchaseService, FirestoreOrder } from "@/services/purchaseService";
+import { toast } from "sonner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,30 +34,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
-interface PurchaseOrderDetail {
-  id: string;
-  status: OrderStatus;
-  created_at: string;
-  approved_at?: string;
-  delivered_at?: string;
-  notes?: string;
-  unit_id: string;
-  profiles_created: {
-    full_name: string | null;
-  };
-  profiles_approved: {
-    full_name: string | null;
-  };
-  items: {
-    id: string;
-    quantity_requested: number;
-    unit_price?: number;
-    ingredients: {
-      name: string;
-      unit_measure: string;
-    };
-  }[];
-}
+// Usando a tipagem do serviço Firebase
+interface PurchaseOrderDetail extends FirestoreOrder {}
 
 const PurchaseDetail = () => {
   const { id } = useParams();
@@ -77,26 +54,8 @@ const PurchaseDetail = () => {
     try {
       setLoading(true);
       
-      const { data, error } = await supabase
-        .from('orders')
-        .select(`
-          *,
-          profiles_created:profiles!orders_requested_by_fkey (full_name),
-          profiles_approved:profiles!orders_approved_by_fkey (full_name),
-          items:order_items (
-            id,
-            quantity_requested,
-            unit_price,
-            ingredients (
-              name,
-              unit_measure
-            )
-          )
-        `)
-        .eq('id', id)
-        .single();
-
-      if (error) throw error;
+      const data = await purchaseService.getOrderById(id);
+      if (!data) throw new Error("Pedido não encontrado");
 
       setOrder(data as PurchaseOrderDetail);
     } catch {
@@ -135,15 +94,10 @@ const PurchaseDetail = () => {
 
         if (newStatus === 'aprovado') {
           updates.approved_at = new Date().toISOString();
-          updates.approved_by = user?.id;
+          updates.approved_by = user?.uid;
         }
 
-        const { error } = await supabase
-          .from('orders')
-          .update(updates)
-          .eq('id', order.id);
-
-        if (error) throw error;
+        await purchaseService.updateOrderStatus(order.id, updates);
 
         toast.success(`Pedido ${newStatus === 'aprovado' ? 'aprovado' : 'atualizado'} com sucesso!`);
       }
@@ -253,7 +207,7 @@ const PurchaseDetail = () => {
                 <p className="text-sm font-medium text-muted-foreground">Solicitante</p>
                 <div className="flex items-center gap-2">
                   <User className="w-4 h-4 text-muted-foreground" />
-                  <span>{order.profiles_created?.full_name || "Desconhecido"}</span>
+                  <span>{order.creator_name || "Desconhecido"}</span>
                 </div>
               </div>
             </div>
@@ -279,9 +233,9 @@ const PurchaseDetail = () => {
                     <p className="font-medium">
                       {new Date(order.approved_at).toLocaleString('pt-BR')}
                     </p>
-                    {order.profiles_approved && (
+                    {order.approver_name && (
                       <p className="text-xs text-muted-foreground">
-                        por {order.profiles_approved.full_name}
+                        por {order.approver_name}
                       </p>
                     )}
                   </div>
@@ -313,14 +267,14 @@ const PurchaseDetail = () => {
               {order.items.map((item) => (
                 <div key={item.id} className="py-3 flex justify-between items-center first:pt-0 last:pb-0">
                   <div>
-                    <p className="font-medium">{item.ingredients?.name}</p>
+                    <p className="font-medium">{item.ingredient_name}</p>
                     <p className="text-sm text-muted-foreground">
-                      {item.ingredients?.unit_measure}
+                      {item.ingredient_unit_measure}
                     </p>
                   </div>
                   <div className="text-right">
                     <p className="font-bold text-lg">
-                      {item.quantity_requested} <span className="text-sm font-normal text-muted-foreground">{item.ingredients?.unit_measure}</span>
+                      {item.quantity_requested} <span className="text-sm font-normal text-muted-foreground">{item.ingredient_unit_measure}</span>
                     </p>
                     {item.unit_price && (
                       <p className="text-sm text-muted-foreground">
